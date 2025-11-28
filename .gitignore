@@ -1,144 +1,35 @@
+# Build and distribution directories
+build/
+dist/
+.generated_files/
 
-dist/.DS_Store
-debug/.DS_Store
-build/.DS_Store
-build/default/.DS_Store
-dist/default/.DS_Store
-nbproject/.DS_Store
+# IDE private settings
+nbproject/private/
+
+# Object files
+*.o
+*.o.d
+
+# Compiled binaries
+*.elf
+*.hex
+*.map
+*.d
+
+# Debug files
+*.cof
+*.cod
+
+# OS specific
 .DS_Store
-.generated_files/flags/default/59ea864538e43cdea31127cf44e6de6ab44c48c7
-.generated_files/flags/default/76c79c622f3f7701c55f6e52c5f1a792fde0b169
-.generated_files/flags/default/9504c0860e346b749f8a0d13ec26039f65b13e9e
-.generated_files/flags/default/9a06161e05ab09841b465aa2be441f827fdc735b
-.generated_files/flags/default/9ec3bea5eb2f3e3f321e10ea6504d7e6b780e21d
-.generated_files/flags/default/da39a3ee5e6b4b0d3255bfef95601890afd80709
-.generated_files/flags/default/f0ae9f58e18b12dfa49324dc7db98c4d182b7dcf
-.generated_files/flags/default/8485f27bd1c0a6c403e176020077c365d74a9ac6
-.generated_files/flags/default/da61b59ecd3430607e0ea02250d7006f6b4391bb
-build/default/production/TouchSense.o
-build/default/production/SH1101A.o
-build/default/production/RGBLeds.o
-build/default/production/main.o
-build/default/debug/TouchSense.o
-build/default/debug/SH1101A.o
-build/default/debug/RGBLeds.o
-build/default/debug/main.o
-USB/usb_printer_pos_seiko_mpu_l465.h
-USB/usb_printer_pos_seiko_dpu_v445.h
-USB/usb_printer_pos_epson_tm_t88iv.h
-USB/usb_printer_pos_bixolon_srp_270.h
-USB/usb_pic32.h
-USB/usb_pic18_local.h
-USB/usb_otg.h
-USB/usb_otg.c
-USB/usb_host_printer_primitives.h
-USB/usb_host_printer_postscript.h
-USB/usb_host_printer_pcl_5.h
-USB/usb_host_printer_esc_pos.h
-USB/usb_host_printer.h
-USB/usb_host_msd_scsi.h
-USB/usb_host_msd.h
-USB/usb_host_midi.h
-USB/usb_host_local.h
-USB/usb_host_hid_parser.h
-USB/usb_host_hid.h
-USB/usb_host_generic.h
-USB/usb_host_charger.h
-USB/usb_host_cdc_interface.h
-USB/usb_host_cdc.h
-USB/usb_host_audio_v1.h
-USB/usb_host_android.h
-USB/usb_host.h
-USB/usb_host.c
-USB/usb_hal_pic32.h
-USB/usb_hal_pic24f.h
-USB/usb_hal_pic24f.c
-USB/usb_hal_pic24E.h
-USB/usb_hal_pic24e.c
-USB/usb_hal_pic24.h
-USB/usb_hal_pic24.c
-USB/usb_hal_pic18.h
-USB/usb_hal_pic16f1.h
-USB/usb_hal_local.h
-USB/usb_hal_dspic33E.h
-USB/usb_hal_dspic33e.c
-USB/usb_hal.h
-USB/usb_function_phdc_com_model.h
-USB/usb_function_phdc.h
-USB/usb_function_msd.h
-USB/usb_function_midi.h
-USB/usb_function_hid.h
-USB/usb_function_generic.h
-USB/usb_function_cdc.h
-USB/usb_function_ccid.h
-USB/usb_function_audio.h
-USB/usb_device_local.h
-USB/usb_device.h
-USB/usb_device.c
-USB/usb_common.h
-USB/usb_ch9.h
-USB/usb.h
-USB/Printer Host Driver/usb_host_printer_primitives.c
-USB/Printer Host Driver/usb_host_printer_postscript.c
-USB/Printer Host Driver/usb_host_printer_pcl_5.c
-USB/Printer Host Driver/usb_host_printer_esc_pos.c
-USB/Printer Host Driver/usb_host_printer.c
-USB/Printer Host Driver/Documentation/Printers.xls
-USB/Printer Host Driver/Documentation/Printer Study.xls
-USB/PHDC Device Driver/usb_function_phdc_com_model.c
-USB/PHDC Device Driver/usb_function_phdc.c
-USB/MSD Host Driver/usb_host_msd_scsi.c
-USB/MSD Host Driver/usb_host_msd.c
-USB/MSD Device Driver/usb_function_msd_multi_sector.c
-USB/MSD Device Driver/usb_function_msd.c
-USB/MIDI Host Driver/usb_host_midi.c
-USB/HID Host Driver/usb_host_hid_parser.c
-USB/HID Host Driver/usb_host_hid.c
-USB/HID Device Driver/usb_function_hid.c
-USB/Generic Host Driver/usb_host_generic.c
-USB/Generic Device Driver/usb_function_generic.c
-USB/Documentation/Read Me.txt
-USB/Documentation/getting_started.htm
-USB/Documentation/Board Information/USB PICTail Plus Info Sheet 39909a.pdf
-USB/Documentation/Board Information/PICtail Daughter Board for SD and MMC (51583b).pdf
-USB/Documentation/Board Information/PICDEM FSUSB Demo Board Users Guide (51526b).pdf
-USB/Documentation/Board Information/PIC32_USB_PIM_Schematics_51775A.pdf
-USB/Documentation/Board Information/PIC24FJ256GB110 PIM Info Sheet (39908).pdf
-USB/Documentation/Board Information/PIC18F87J50_FS_USB Users Guide.pdf
-USB/Documentation/Board Information/PIC18F46J50 FS USB Demo Board Users Guide (51806a).pdf
-USB/Documentation/Board Information/Online Links to Other Useful Documents.htm
-USB/Charger Host Driver/usb_host_charger.c
-USB/CDC Host Driver/usb_host_cdc_interface.c
-USB/CDC Host Driver/usb_host_cdc.c
-USB/CDC Device Driver/usb_function_cdc.c
-USB/CCID Device Driver/usb_function_ccid.c
-USB/Audio v1 Host Driver/usb_host_audio_v1.c
-USB/Audio Device Driver/usb_function_audio.c
-USB/Android Host Driver/usb_host_android_local.h
-USB/Android Host Driver/usb_host_android.c
-MDD File System/TEMPLATEFILE.h
-MDD File System/SD-SPI.h
-MDD File System/SD-SPI.c
-MDD File System/Internal Flash.h
-MDD File System/Internal Flash.c
-MDD File System/FSIO.h
-MDD File System/FSIO.c
-MDD File System/FSDefs.h
-MDD File System/FS Phys Interface Template.c
-MDD File System/Documentation/PICtail Daughter Board for SD and MMC (51583b).pdf
-MDD File System/Documentation/01045b.pdf
-MDD File System/CF-PMP.h
-MDD File System/CF-PMP.c
-MDD File System/CF-Bit transaction.c
-MDD File System/CF- Bit transaction.h
+Thumbs.db
+
+# MCC generated
+mcc-manifest-autosave.yml
+
+# USB and File System libraries (not needed for this project)
+USB/
+MDD File System/
 FSconfig.h
 Flash.h
 Flash.c
-build/default/production/TouchSense.o
-build/default/production/SH1101A.o
-build/default/production/RGBLeds.o
-build/default/production/main.o
-build/default/debug/TouchSense.o
-build/default/debug/SH1101A.o
-build/default/debug/RGBLeds.o
-build/default/debug/main.o
