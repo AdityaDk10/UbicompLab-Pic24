@@ -6,6 +6,81 @@
 #include "PIC24FStarter.h"
 #include <stdio.h>
 
+// ==================== USER DATABASE ====================
+
+// User structure to hold credentials
+typedef struct {
+    int16_t userId;      // 2-digit ID
+    int16_t password;    // 4-digit password
+    uint8_t isActive;    // 1 = slot used, 0 = empty
+} User;
+
+// Database to store up to 10 users
+User userDatabase[10];
+uint8_t userCount = 0;
+
+// Initialize database (mark all slots as empty)
+void InitDatabase() {
+    for (uint8_t i = 0; i < 10; i++) {
+        userDatabase[i].userId = 0;
+        userDatabase[i].password = 0;
+        userDatabase[i].isActive = 0;
+    }
+    userCount = 0;
+}
+
+// Find user by ID, returns index (0-9) or -1 if not found
+int8_t FindUser(int16_t userId) {
+    for (uint8_t i = 0; i < 10; i++) {
+        if (userDatabase[i].isActive && userDatabase[i].userId == userId) {
+            return i;  // Found at index i
+        }
+    }
+    return -1;  // Not found
+}
+
+// Register new user, returns 1 on success, 0 on failure
+uint8_t RegisterUser(int16_t userId, int16_t password) {
+    // Check if database is full
+    if (userCount >= 10) {
+        return 0;  // Database full
+    }
+    
+    // Check if user ID already exists
+    if (FindUser(userId) != -1) {
+        return 0;  // ID already exists
+    }
+    
+    // Find first empty slot and add user
+    for (uint8_t i = 0; i < 10; i++) {
+        if (!userDatabase[i].isActive) {
+            userDatabase[i].userId = userId;
+            userDatabase[i].password = password;
+            userDatabase[i].isActive = 1;
+            userCount++;
+            return 1;  // Success
+        }
+    }
+    
+    return 0;  // Should never reach here
+}
+
+// Validate login, returns 1 on success, 0 on failure
+uint8_t ValidateLogin(int16_t userId, int16_t password) {
+    int8_t index = FindUser(userId);
+    
+    if (index == -1) {
+        return 0;  // User not found
+    }
+    
+    // Check password
+    if (userDatabase[index].password == password) {
+        return 1;  // Login successful
+    }
+    
+    return 0;  // Wrong password
+}
+
 // ==================== TIMER DELAY ====================
 void delay(unsigned int milliseconds) {
     T1CONbits.TCKPS = 0b11; // Prescale 1:256
@@ -184,6 +259,9 @@ int main(void) {
     RGBTurnOnLED();
     ResetDevice();
     
+    // Initialize user database
+    InitDatabase();
+    
     // Startup greeting
     ShowMessage("HELLO!", 3);
     
@@ -200,12 +278,28 @@ int main(void) {
             ShowMessage("REGISTER MENU", 1);
             ShowMessage("LOADING...", 2);
             
+            // Check if database is full
+            if (userCount >= 10) {
+                DisplayTwoLines("DATABASE", "FULL!");
+                delay(3000);
+                ShowMessage("REDIRECTING...", 1);
+                continue;  // Back to menu
+            }
+            
             // Prompt for ID
             DisplayTwoLines("PLEASE ENTER", "ID");
             delay(2000);
             
             // Collect 2-digit ID (automatically proceeds)
             int16_t userId = CollectDigits(2, "ID");
+            
+            // Check if ID already exists
+            if (FindUser(userId) != -1) {
+                DisplayTwoLines("ID ALREADY", "EXISTS!");
+                delay(3000);
+                ShowMessage("REDIRECTING...", 1);
+                continue;  // Back to menu
+            }
             
             // Prompt for Password
             DisplayTwoLines("PLEASE ENTER", "PWD");
@@ -214,9 +308,14 @@ int main(void) {
             // Collect 4-digit password (automatically proceeds)
             int16_t password = CollectDigits(4, "PWD");
             
-            // Show success
-            DisplayTwoLines("REGISTRATION", "SUCCESSFUL!");
-            delay(2000);
+            // Register the user
+            if (RegisterUser(userId, password)) {
+                DisplayTwoLines("REGISTRATION", "SUCCESSFUL!");
+                delay(2000);
+            } else {
+                DisplayTwoLines("REGISTRATION", "FAILED!");
+                delay(2000);
+            }
             ShowMessage("REDIRECTING...", 1);
             
         } else if (choice == 1) {  // RIGHT button = 2 = Login
@@ -231,6 +330,15 @@ int main(void) {
             // Collect 2-digit ID (automatically proceeds)
             int16_t userId = CollectDigits(2, "ID");
             
+            // Check if user exists
+            if (FindUser(userId) == -1) {
+                ShowMessage("CHECKING...", 1);
+                DisplayTwoLines("INVALID", "USER ID!");
+                delay(3000);
+                ShowMessage("REDIRECTING...", 1);
+                continue;  // Back to menu
+            }
+            
             // Prompt for Password
             DisplayTwoLines("PLEASE ENTER", "PWD");
             delay(2000);
@@ -238,10 +346,15 @@ int main(void) {
             // Collect 4-digit password (automatically proceeds)
             int16_t password = CollectDigits(4, "PWD");
             
-            // Show result (validation will be added in Phase 2)
+            // Validate credentials
             ShowMessage("CHECKING...", 2);
-            DisplayTwoLines("LOGIN", "SUCCESSFUL!");
-            delay(2000);
+            if (ValidateLogin(userId, password)) {
+                DisplayTwoLines("LOGIN", "SUCCESSFUL!");
+                delay(2000);
+            } else {
+                DisplayTwoLines("WRONG", "PASSWORD!");
+                delay(3000);
+            }
             ShowMessage("REDIRECTING...", 1);
         }
     }
