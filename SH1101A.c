@@ -278,15 +278,16 @@ const uint8_t font5x7[][5] = {
     {0x40, 0x40, 0x40, 0x40, 0x40}, // 95 _
 };
 
-// Draw a single character at position (x, y)
+// Draw a single character at position (x, y) - pixel by pixel
 void DrawChar(int16_t x, int16_t y, char c) {
     if (c < 32 || c > 95) c = 32; // Limit to printable ASCII
     const uint8_t* glyph = font5x7[c - 32];
     
+    // Draw each column of the character
     for (uint8_t col = 0; col < 5; col++) {
-        uint8_t line = glyph[col];
-        for (uint8_t row = 0; row < 7; row++) {
-            if (line & (1 << row)) {
+        uint8_t columnData = glyph[col];
+        for (uint8_t row = 0; row < 8; row++) {
+            if (columnData & (1 << row)) {
                 PutPixel(x + col, y + row);
             }
         }
