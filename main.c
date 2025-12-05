@@ -8,23 +8,32 @@
 
 // ==================== USER DATABASE ====================
 
+#define PATTERN_LENGTH 4  // Fixed 4-button pattern
+
 // User structure to hold credentials
 typedef struct {
-    int16_t userId;      // 2-digit ID
-    int16_t password;    // 4-digit password
-    uint8_t isActive;    // 1 = slot used, 0 = empty
+    int16_t userId;              // 2-digit ID
+    uint8_t pattern[PATTERN_LENGTH];  // 4-button pattern (1-5)
+    uint8_t isActive;            // 1 = slot used, 0 = empty
 } User;
 
 // Database to store up to 10 users
 User userDatabase[10];
 uint8_t userCount = 0;
 
+// Button positions on screen (for pattern display)
+// Button order: 0=UP, 1=RIGHT, 2=DOWN, 3=LEFT, 4=CENTER
+const uint8_t buttonX[5] = {64, 100, 64, 28, 64};   // X coordinates
+const uint8_t buttonY[5] = {12, 32, 52, 32, 32};    // Y coordinates
+
 // Initialize database (mark all slots as empty)
 void InitDatabase() {
     for (uint8_t i = 0; i < 10; i++) {
         userDatabase[i].userId = 0;
-        userDatabase[i].password = 0;
         userDatabase[i].isActive = 0;
+        for (uint8_t j = 0; j < PATTERN_LENGTH; j++) {
+            userDatabase[i].pattern[j] = 0;
+        }
     }
     userCount = 0;
 }
@@ -39,8 +48,18 @@ int8_t FindUser(int16_t userId) {
     return -1;  // Not found
 }
 
+// Compare two patterns, returns 1 if match, 0 if different
+uint8_t ComparePatterns(uint8_t* pattern1, uint8_t* pattern2) {
+    for (uint8_t i = 0; i < PATTERN_LENGTH; i++) {
+        if (pattern1[i] != pattern2[i]) {
+            return 0;  // Mismatch
+        }
+    }
+    return 1;  // Match
+}
+
 // Register new user, returns 1 on success, 0 on failure
-uint8_t RegisterUser(int16_t userId, int16_t password) {
+uint8_t RegisterUser(int16_t userId, uint8_t* pattern) {
     // Check if database is full
     if (userCount >= 10) {
         return 0;  // Database full
@@ -55,7 +74,9 @@ uint8_t RegisterUser(int16_t userId, int16_t password) {
     for (uint8_t i = 0; i < 10; i++) {
         if (!userDatabase[i].isActive) {
             userDatabase[i].userId = userId;
-            userDatabase[i].password = password;
+            for (uint8_t j = 0; j < PATTERN_LENGTH; j++) {
+                userDatabase[i].pattern[j] = pattern[j];
+            }
             userDatabase[i].isActive = 1;
             userCount++;
             return 1;  // Success
@@ -66,19 +87,52 @@ uint8_t RegisterUser(int16_t userId, int16_t password) {
 }
 
 // Validate login, returns 1 on success, 0 on failure
-uint8_t ValidateLogin(int16_t userId, int16_t password) {
+uint8_t ValidateLogin(int16_t userId, uint8_t* pattern) {
     int8_t index = FindUser(userId);
     
     if (index == -1) {
         return 0;  // User not found
     }
     
-    // Check password
-    if (userDatabase[index].password == password) {
+    // Check pattern
+    if (ComparePatterns(userDatabase[index].pattern, pattern)) {
         return 1;  // Login successful
     }
     
-    return 0;  // Wrong password
+    return 0;  // Wrong pattern
+}
+
+// ==================== PATTERN DISPLAY ====================
+
+// Draw the 5 button positions as dots on screen
+void DrawPatternGrid() {
+    SetColor(WHITE);
+    for (uint8_t i = 0; i < 5; i++) {
+        DrawFilledCircle(buttonX[i], buttonY[i], 3);
+    }
+}
+
+// Draw pattern lines connecting buttons
+void DrawPatternLines(uint8_t* pattern, uint8_t length) {
+    SetColor(WHITE);
+    for (uint8_t i = 1; i < length; i++) {
+        uint8_t prev = pattern[i-1] - 1;  // Convert 1-5 to 0-4 index
+        uint8_t curr = pattern[i] - 1;
+        DrawLine(buttonX[prev], buttonY[prev], buttonX[curr], buttonY[curr]);
+    }
+}
+
+// Draw current pattern state (grid + lines so far)
+void UpdatePatternDisplay(uint8_t* pattern, uint8_t length) {
+    SetColor(BLACK);
+    ClearDevice();
+    DrawPatternGrid();
+    if (length > 0) {
+        DrawPatternLines(pattern, length);
+        // Highlight last touched button
+        uint8_t last = pattern[length-1] - 1;
+        DrawFilledCircle(buttonX[last], buttonY[last], 5);
+    }
 }
 
 // ==================== TIMER DELAY ====================
@@ -129,6 +183,75 @@ void DisplayTwoLines(const char* line1, const char* line2) {
     uint8_t width2 = GetStringWidth(line2);
     int16_t x2 = (DISP_HOR_RESOLUTION - width2) / 2;
     DrawString(x2, 40, line2);
+}
+
+// ==================== PATTERN INPUT ====================
+
+// Check if button is already in pattern (no repeats)
+uint8_t IsInPattern(uint8_t* pattern, uint8_t length, uint8_t button) {
+    for (uint8_t i = 0; i < length; i++) {
+        if (pattern[i] == button) return 1;
+    }
+    return 0;
+}
+
+// Collect 4-button pattern using swipe detection (like ball movement)
+void CollectPattern(uint8_t* pattern) {
+    uint8_t patternLen = 0;
+    int16_t aggr[5] = {0, 0, 0, 0, 0};
+    uint8_t lastButton = 0xFF;  // Last button added to pattern
+    const int16_t THRESHOLD = 6;
+    const int16_t RELEASE_THRESHOLD = 2;
+    const uint16_t timeout = 10;
+    
+    // Show initial grid
+    SetColor(BLACK);
+    ClearDevice();
+    DrawPatternGrid();
+    
+    // Collect pattern until 4 buttons
+    while (patternLen < PATTERN_LENGTH) {
+        ReadCTMU();
+        
+        // Update aggregate values (same as ball movement logic)
+        for (uint8_t i = 0; i < 5; i++) {
+            if (buttons[i]) aggr[i]++;
+            else aggr[i]--;
+            if (aggr[i] < 0) aggr[i] = 0;
+            if (aggr[i] > 30) aggr[i] = 30;
+        }
+        
+        // Find which button currently has highest aggregate
+        int16_t maxVal = THRESHOLD;
+        uint8_t currentButton = 0xFF;
+        for (uint8_t i = 0; i < 5; i++) {
+            if (aggr[i] > maxVal) {
+                maxVal = aggr[i];
+                currentButton = i;
+            }
+        }
+        
+        // If touching a valid button
+        if (currentButton != 0xFF) {
+            uint8_t buttonNum = currentButton + 1;  // Convert 0-4 to 1-5
+            
+            // Check if it's a NEW button (not the same as last, not already in pattern)
+            if (currentButton != lastButton && !IsInPattern(pattern, patternLen, buttonNum)) {
+                // Add to pattern
+                pattern[patternLen] = buttonNum;
+                patternLen++;
+                lastButton = currentButton;
+                
+                // Update display with new line
+                UpdatePatternDisplay(pattern, patternLen);
+            }
+        }
+        
+        delay(timeout);
+    }
+    
+    // Pattern complete - show final result for a moment
+    delay(500);
 }
 
 // ==================== INPUT COLLECTION ====================
@@ -301,15 +424,16 @@ int main(void) {
                 continue;  // Back to menu
             }
             
-            // Prompt for Password
-            DisplayTwoLines("PLEASE ENTER", "PWD");
+            // Prompt for Pattern
+            DisplayTwoLines("DRAW YOUR", "PATTERN");
             delay(2000);
             
-            // Collect 4-digit password (automatically proceeds)
-            int16_t password = CollectDigits(4, "PWD");
+            // Collect 4-button pattern (swipe-based)
+            uint8_t pattern[PATTERN_LENGTH];
+            CollectPattern(pattern);
             
             // Register the user
-            if (RegisterUser(userId, password)) {
+            if (RegisterUser(userId, pattern)) {
                 DisplayTwoLines("REGISTRATION", "SUCCESSFUL!");
                 delay(2000);
             } else {
@@ -339,20 +463,21 @@ int main(void) {
                 continue;  // Back to menu
             }
             
-            // Prompt for Password
-            DisplayTwoLines("PLEASE ENTER", "PWD");
+            // Prompt for Pattern
+            DisplayTwoLines("DRAW YOUR", "PATTERN");
             delay(2000);
             
-            // Collect 4-digit password (automatically proceeds)
-            int16_t password = CollectDigits(4, "PWD");
+            // Collect 4-button pattern (swipe-based)
+            uint8_t pattern[PATTERN_LENGTH];
+            CollectPattern(pattern);
             
             // Validate credentials
             ShowMessage("CHECKING...", 2);
-            if (ValidateLogin(userId, password)) {
+            if (ValidateLogin(userId, pattern)) {
                 DisplayTwoLines("LOGIN", "SUCCESSFUL!");
                 delay(2000);
             } else {
-                DisplayTwoLines("WRONG", "PASSWORD!");
+                DisplayTwoLines("WRONG", "PATTERN!");
                 delay(3000);
             }
             ShowMessage("REDIRECTING...", 1);

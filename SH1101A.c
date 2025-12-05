@@ -310,3 +310,44 @@ uint8_t GetStringWidth(const char* str) {
     while (*str++) len++;
     return (len > 0) ? (len * 6 - 1) : 0; // 6 pixels per char, minus last spacing
 }
+
+// Draw a line using Bresenham's algorithm
+void DrawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1) {
+    int16_t dx = x1 - x0;
+    int16_t dy = y1 - y0;
+    int16_t sx = (dx > 0) ? 1 : -1;
+    int16_t sy = (dy > 0) ? 1 : -1;
+    
+    if (dx < 0) dx = -dx;
+    if (dy < 0) dy = -dy;
+    
+    int16_t err = dx - dy;
+    int16_t e2;
+    
+    while (1) {
+        PutPixel(x0, y0);
+        
+        if (x0 == x1 && y0 == y1) break;
+        
+        e2 = 2 * err;
+        if (e2 > -dy) {
+            err -= dy;
+            x0 += sx;
+        }
+        if (e2 < dx) {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+// Draw a filled circle
+void DrawFilledCircle(int16_t cx, int16_t cy, int16_t r) {
+    for (int16_t y = -r; y <= r; y++) {
+        for (int16_t x = -r; x <= r; x++) {
+            if (x*x + y*y <= r*r) {
+                PutPixel(cx + x, cy + y);
+            }
+        }
+    }
+}

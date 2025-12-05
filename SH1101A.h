@@ -47,5 +47,7 @@ uint8_t GetPixel(int16_t x, int16_t y);
 void DrawChar(int16_t x, int16_t y, char c);
 void DrawString(int16_t x, int16_t y, const char* str);
 uint8_t GetStringWidth(const char* str);
+void DrawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1);
+void DrawFilledCircle(int16_t cx, int16_t cy, int16_t r);
 
 #endif	/* SH1101A__H */
