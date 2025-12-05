@@ -1,9 +1,14 @@
-/* Author: kvl@eti.uni-siegen.de
- * Created on July 26, 2025, 10:17 AM
+/*
+ * SH1101A OLED Display Driver - Header
+ * 
  * The SH1101A OLED Display is connected to the PIC24F through:
- *  - PMD7:PMD0    -> PMP Data port     - PMRD (D5)    -> PMP Read
- *  - PMWR (D4)    -> PMP Write         - PMCS1 (D11)  -> Chip Select
- *  - PMA0 (B15)   -> A0                - RESET (D2)   -> reset              */
+ *   - PMD7:PMD0  -> PMP Data port    - PMRD (D5)   -> PMP Read
+ *   - PMWR (D4)  -> PMP Write        - PMCS1 (D11) -> Chip Select
+ *   - PMA0 (B15) -> A0               - RESET (D2)  -> Reset
+ * 
+ * Original driver by: kvl@eti.uni-siegen.de
+ * Extended with text/graphics by: AdityaDk10
+ */
 #ifndef SH1101A__H
 #define	SH1101A__H
 

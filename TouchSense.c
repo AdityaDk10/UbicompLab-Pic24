@@ -1,8 +1,13 @@
-/* Author: kvl@eti.uni-siegen.de
- * Created on July 27, 2025, 7:24 PM
- * Read out the capacitive touch sense pads for the PIC24F Starter Kit
- * CTMU (Charge Time Measurement Unit) uses capacitive touch switches (pads
- * on the PCB), to measure the relative capacitance of switches by AD converter
+/*
+ * Capacitive Touch Sensor Driver
+ * 
+ * Reads the 5 capacitive touch pads on the PIC24F Starter Kit using
+ * the CTMU (Charge Time Measurement Unit) and ADC for relative
+ * capacitance measurement.
+ * 
+ * Button mapping: UP(0), RIGHT(1), DOWN(2), LEFT(3), CENTER(4)
+ * 
+ * Original driver by: kvl@eti.uni-siegen.de
  */
 #include "TouchSense.h"
 

@@ -1,5 +1,10 @@
-/* Author: kvl@eti.uni-siegen.de
- * Created on July 26, 2025, 10:17 AM */
+/*
+ * PIC24F Starter Kit - Main Header
+ * 
+ * Configuration bits and includes for PIC24F Starter Kit 1.
+ * 
+ * Original configuration by: kvl@eti.uni-siegen.de
+ */
 #ifndef P24FS__H
 #define	P24FS__H
 

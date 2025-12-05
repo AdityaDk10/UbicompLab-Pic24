@@ -1,5 +1,8 @@
-/* Author: kvl@eti.uni-siegen.de
- * Created on July 26, 2025, 10:17 AM */
+/*
+ * Capacitive Touch Sensor Driver - Header
+ * 
+ * Original driver by: kvl@eti.uni-siegen.de
+ */
 #ifndef TOUCHSENSE__H
 #define	TOUCHSENSE__H
 

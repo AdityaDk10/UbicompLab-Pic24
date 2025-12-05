@@ -1,6 +1,20 @@
-/* Author: kvl@eti.uni-siegen.de
- * Created on July 25, 2025, 11:18 AM
- * Modified for 5-button authentication system
+/*
+ * PIC24F Authentication System
+ * 
+ * A pattern-based authentication system using capacitive touch buttons
+ * and OLED display for the PIC24F Starter Kit.
+ * 
+ * Features:
+ *   - 2-digit user ID
+ *   - 4-button swipe pattern password (Android-style)
+ *   - Real-time pattern visualization
+ *   - Multi-user support (up to 10 users)
+ * 
+ * Hardware: PIC24F Starter Kit 1
+ * 
+ * Original hardware drivers by: kvl@eti.uni-siegen.de
+ * Authentication system by: AdityaDk10
+ * Repository: https://github.com/AdityaDk10/UbicompLab-Pic24
  */
 
 #include "PIC24FStarter.h"

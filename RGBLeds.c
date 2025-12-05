@@ -1,6 +1,9 @@
-/* Author: kvl@eti.uni-siegen.de
- * Created on July 27, 2025, 7:24 PM
+/*
+ * RGB LED Driver
  * 
+ * Controls the RGB LEDs on the PIC24F Starter Kit using PWM.
+ * 
+ * Original driver by: kvl@eti.uni-siegen.de
  */
 #include "RGBLeds.h"
 

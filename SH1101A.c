@@ -1,5 +1,11 @@
-/* Author: kvl@eti.uni-siegen.de
- * Created on July 26, 2025, 10:17 AM
+/*
+ * SH1101A OLED Display Driver
+ * 
+ * Driver for SH1101A 128x64 OLED display connected via PMP interface.
+ * Includes text rendering with 5x7 font and graphics primitives.
+ * 
+ * Original driver by: kvl@eti.uni-siegen.de
+ * Extended with text/graphics by: AdityaDk10
  */
 #include "SH1101A.h"
 

@@ -1,7 +1,12 @@
-/* Author: kvl@eti.uni-siegen.de
- * Created on July 26, 2025, 10:17 AM
- * Functions for the RGB LEDs, used pins are: RG6/RG7, RG8/RG9, RF4/RF5
- * To control the color, write the inverse of the saturation value to the PWM */
+/*
+ * RGB LED Driver - Header
+ * 
+ * Functions for the RGB LEDs using PWM.
+ * Pins: RG6/RG7, RG8/RG9, RF4/RF5
+ * To control color, write inverse of saturation value to PWM.
+ * 
+ * Original driver by: kvl@eti.uni-siegen.de
+ */
 #ifndef RGBLEDS__H
 #define	RGBLEDS__H
 
