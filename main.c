@@ -22,12 +22,12 @@
 
 // ==================== USER DATABASE ====================
 
-#define PATTERN_LENGTH 4  // Fixed 4-button pattern
+#define PATTERN_LENGTH 5  // Fixed 5-button pattern
 
 // User structure to hold credentials
 typedef struct {
     int16_t userId;              // 2-digit ID
-    uint8_t pattern[PATTERN_LENGTH];  // 4-button pattern (1-5)
+    uint8_t pattern[PATTERN_LENGTH];  // 5-button pattern (1-5)
     uint8_t isActive;            // 1 = slot used, 0 = empty
 } User;
 
