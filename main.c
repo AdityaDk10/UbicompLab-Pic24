@@ -22,13 +22,14 @@
 
 // ==================== USER DATABASE ====================
 
-#define PATTERN_LENGTH 5  // Fixed 5-button pattern
+#define PATTERN_LENGTH 4  // Fixed 4-button pattern
 
 // User structure to hold credentials
 typedef struct {
     int16_t userId;              // 2-digit ID
-    uint8_t pattern[PATTERN_LENGTH];  // 5-button pattern (1-5)
+    uint8_t pattern[PATTERN_LENGTH];  // 4-button pattern (1-5)
     uint8_t isActive;            // 1 = slot used, 0 = empty
+    uint8_t failedAttempts;      // Failed login attempts counter
 } User;
 
 // Database to store up to 10 users
@@ -45,6 +46,7 @@ void InitDatabase() {
     for (uint8_t i = 0; i < 10; i++) {
         userDatabase[i].userId = 0;
         userDatabase[i].isActive = 0;
+        userDatabase[i].failedAttempts = 0;
         for (uint8_t j = 0; j < PATTERN_LENGTH; j++) {
             userDatabase[i].pattern[j] = 0;
         }
@@ -92,6 +94,7 @@ uint8_t RegisterUser(int16_t userId, uint8_t* pattern) {
                 userDatabase[i].pattern[j] = pattern[j];
             }
             userDatabase[i].isActive = 1;
+            userDatabase[i].failedAttempts = 0;
             userCount++;
             return 1;  // Success
         }
@@ -290,7 +293,7 @@ int16_t CollectDigits(uint8_t numDigits, const char* prompt) {
             else aggr[i]--;
             if (aggr[i] < 0) aggr[i] = 0;
             if (aggr[i] > 30) aggr[i] = 30;
-        }
+}
         
         // Check if all buttons are truly released (all aggregates near zero)
         uint8_t allReleased = 1;
@@ -403,7 +406,7 @@ int main(void) {
     ShowMessage("HELLO!", 3);
     
     // Main application loop
-    while(1) {
+    while(1) { 
         // Display main menu
         DisplayTwoLines("4=REGISTER", "2=LOGIN");
         
@@ -469,12 +472,22 @@ int main(void) {
             int16_t userId = CollectDigits(2, "ID");
             
             // Check if user exists
-            if (FindUser(userId) == -1) {
+            int8_t userIndex = FindUser(userId);
+            if (userIndex == -1) {
                 ShowMessage("CHECKING...", 1);
                 DisplayTwoLines("INVALID", "USER ID!");
                 delay(3000);
                 ShowMessage("REDIRECTING...", 1);
                 continue;  // Back to menu
+            }
+            
+            // Check if account is locked (3 failed attempts)
+            if (userDatabase[userIndex].failedAttempts >= 3) {
+                ShowMessage("CHECKING...", 1);
+                DisplayTwoLines("ACCOUNT", "LOCKED!");
+                delay(3000);
+                ShowMessage("REDIRECTING...", 1);
+                continue;  // Back to menu - don't allow login
             }
             
             // Prompt for Pattern
@@ -488,14 +501,29 @@ int main(void) {
             // Validate credentials
             ShowMessage("CHECKING...", 2);
             if (ValidateLogin(userId, pattern)) {
+                // Login successful - reset failed attempts
+                userDatabase[userIndex].failedAttempts = 0;
                 DisplayTwoLines("LOGIN", "SUCCESSFUL!");
                 delay(2000);
             } else {
-                DisplayTwoLines("WRONG", "PATTERN!");
-                delay(3000);
+                // Login failed - increment failed attempts
+                userDatabase[userIndex].failedAttempts++;
+                
+                // Check if account should be locked now
+                if (userDatabase[userIndex].failedAttempts >= 3) {
+                    DisplayTwoLines("ACCOUNT", "LOCKED!");
+                    delay(3000);
+                } else {
+                    // Show remaining attempts
+                    char msg[30];
+                    uint8_t remaining = 3 - userDatabase[userIndex].failedAttempts;
+                    sprintf(msg, "%d ATTEMPTS LEFT", remaining);
+                    DisplayTwoLines("WRONG PATTERN!", msg);
+                    delay(3000);
+                }
             }
             ShowMessage("REDIRECTING...", 1);
-        }
+    }
     }
     
     RGBTurnOffLED();

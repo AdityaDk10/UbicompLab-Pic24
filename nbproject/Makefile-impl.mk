@@ -24,7 +24,7 @@ CLEAN_SUBPROJECTS=${CLEAN_SUBPROJECTS_${SUBPROJECTS}}
 
 
 # Project Name
-PROJECTNAME=UbicompLab-Pic24
+PROJECTNAME=pic24fStarter-main
 
 # Active Configuration
 DEFAULTCONF=default
