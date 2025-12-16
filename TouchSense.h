@@ -16,6 +16,7 @@
 
 extern uint8_t buttons[NUM_TOUCHPADS];  // up, right, down, left, center
 extern uint16_t _potADC;
+extern uint16_t rawCTMU[NUM_TOUCHPADS]; // latest raw capacitance readings
 
 void ReadPotentiometer();
 void CTMUInit();
