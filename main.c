@@ -30,7 +30,7 @@ typedef struct {
     uint8_t pattern[PATTERN_LENGTH];  // 5-button pattern (1-5)
     uint8_t isActive;            // 1 = slot used, 0 = empty
     uint8_t failedAttempts;      // Failed login attempts counter
-    uint16_t capPattern[PATTERN_LENGTH]; // Peak capacitance per button
+    uint16_t timing[PATTERN_LENGTH - 1]; // Inter-button timing in milliseconds (4 values for 5-button pattern)
 } User;
 
 // Database to store up to 10 users
@@ -50,7 +50,9 @@ void InitDatabase() {
         userDatabase[i].failedAttempts = 0;
         for (uint8_t j = 0; j < PATTERN_LENGTH; j++) {
             userDatabase[i].pattern[j] = 0;
-            userDatabase[i].capPattern[j] = 0;
+        }
+        for (uint8_t j = 0; j < PATTERN_LENGTH - 1; j++) {
+            userDatabase[i].timing[j] = 0;
         }
     }
     userCount = 0;
@@ -77,7 +79,7 @@ uint8_t ComparePatterns(uint8_t* pattern1, uint8_t* pattern2) {
 }
 
 // Register new user, returns 1 on success, 0 on failure
-uint8_t RegisterUser(int16_t userId, uint8_t* pattern, uint16_t* capPeaks) {
+uint8_t RegisterUser(int16_t userId, uint8_t* pattern, uint16_t* timing) {
     // Check if database is full
     if (userCount >= 10) {
         return 0;  // Database full
@@ -94,7 +96,9 @@ uint8_t RegisterUser(int16_t userId, uint8_t* pattern, uint16_t* capPeaks) {
             userDatabase[i].userId = userId;
             for (uint8_t j = 0; j < PATTERN_LENGTH; j++) {
                 userDatabase[i].pattern[j] = pattern[j];
-                userDatabase[i].capPattern[j] = capPeaks[j];
+            }
+            for (uint8_t j = 0; j < PATTERN_LENGTH - 1; j++) {
+                userDatabase[i].timing[j] = timing[j];
             }
             userDatabase[i].isActive = 1;
             userDatabase[i].failedAttempts = 0;
@@ -106,49 +110,73 @@ uint8_t RegisterUser(int16_t userId, uint8_t* pattern, uint16_t* capPeaks) {
     return 0;  // Should never reach here
 }
 
-// Validate login using pattern AND capacitance peaks with tolerance.
-// Returns 1 on success, 0 on failure. matchPercentOut reports similarity (0-100).
-uint8_t ValidateLogin(int16_t userId, uint8_t* pattern, uint16_t* capPeaks, uint8_t* matchPercentOut) {
-    const uint8_t CAP_TOLERANCE_PERCENT = 20; // +/- tolerance for capacitance match
+// Validate login using pattern and timing.
+// Returns 1 on success, 0 on failure.
+// timingWarningOut: set to 1 if pattern matches but timing doesn't (warning case)
+uint8_t ValidateLogin(int16_t userId, uint8_t* pattern, uint16_t* timing, uint8_t* timingWarningOut) {
+    const uint8_t TIMING_TOLERANCE_PERCENT = 50; // 50% tolerance for timing match
+    
+    *timingWarningOut = 0;
     
     int8_t index = FindUser(userId);
     if (index == -1) {
-        *matchPercentOut = 0;
         return 0;  // User not found
     }
     
-    // Check pattern first
+    // Check pattern
     if (!ComparePatterns(userDatabase[index].pattern, pattern)) {
-        *matchPercentOut = 0;
         return 0;  // Wrong pattern
     }
     
-    // Compare capacitance peaks with tolerance
-    uint32_t totalSimilarity = 0;
-    for (uint8_t i = 0; i < PATTERN_LENGTH; i++) {
-        uint16_t stored = userDatabase[index].capPattern[i];
-        uint16_t input = capPeaks[i];
+    // Check timing with tolerance
+    uint8_t timingMatch = 1;
+    for (uint8_t i = 0; i < PATTERN_LENGTH - 1; i++) {
+        uint16_t stored = userDatabase[index].timing[i];
+        uint16_t input = timing[i];
         
         if (stored == 0 || input == 0) {
-            *matchPercentOut = 0;
-            return 0; // Invalid data, treat as mismatch
+            timingMatch = 0;
+            break;
         }
         
+        // Calculate difference percentage
         uint16_t diff = (stored > input) ? (stored - input) : (input - stored);
         uint32_t diffPercent = (uint32_t)diff * 100 / stored;
         
-        if (diffPercent > CAP_TOLERANCE_PERCENT) {
-            *matchPercentOut = (diffPercent >= 100) ? 0 : (uint8_t)(100 - diffPercent);
-            return 0; // Outside tolerance
+        if (diffPercent > TIMING_TOLERANCE_PERCENT) {
+            timingMatch = 0;
+            break;
         }
-        
-        // Similarity for this button is 100 - diffPercent
-        totalSimilarity += (100 - diffPercent);
     }
     
-    // Average similarity across buttons
-    *matchPercentOut = (uint8_t)(totalSimilarity / PATTERN_LENGTH);
-    return 1;  // Pattern and capacitance match within tolerance
+    // If pattern matches but timing doesn't, set warning flag
+    if (!timingMatch) {
+        *timingWarningOut = 1;
+    }
+    
+    return 1;  // Pattern matches (timing warning is separate)
+}
+
+// Delete user from database, returns 1 on success, 0 on failure
+uint8_t DeleteUser(int16_t userId) {
+    int8_t index = FindUser(userId);
+    if (index == -1) {
+        return 0;  // User not found
+    }
+    
+    // Mark slot as inactive and clear data
+    userDatabase[index].isActive = 0;
+    userDatabase[index].userId = 0;
+    userDatabase[index].failedAttempts = 0;
+    for (uint8_t j = 0; j < PATTERN_LENGTH; j++) {
+        userDatabase[index].pattern[j] = 0;
+    }
+    for (uint8_t j = 0; j < PATTERN_LENGTH - 1; j++) {
+        userDatabase[index].timing[j] = 0;
+    }
+    
+    userCount--;  // Decrement user count
+    return 1;  // Success
 }
 
 // ==================== PATTERN DISPLAY ====================
@@ -245,7 +273,7 @@ void DisplayTwoLines(const char* line1, const char* line2) {
 }
 
 // Draw main menu with a rectangular highlight around the selected option
-// selectedIndex: 0 = REGISTER, 1 = LOGIN
+// selectedIndex: 0 = REGISTER, 1 = LOGIN, 2 = DELETE
 void DrawMainMenu(uint8_t selectedIndex) {
     SetColor(BLACK);
     ClearDevice();
@@ -253,10 +281,12 @@ void DrawMainMenu(uint8_t selectedIndex) {
 
     const char* regText = "REGISTER";
     const char* loginText = "LOGIN";
+    const char* deleteText = "DELETE";
 
-    // Y positions for the two options
-    const int16_t yReg = 16;
-    const int16_t yLogin = 40;
+    // Y positions for the three options
+    const int16_t yReg = 8;
+    const int16_t yLogin = 28;
+    const int16_t yDelete = 48;
 
     // Draw text centered
     uint8_t widthReg = GetStringWidth(regText);
@@ -266,6 +296,10 @@ void DrawMainMenu(uint8_t selectedIndex) {
     uint8_t widthLogin = GetStringWidth(loginText);
     int16_t xLogin = (DISP_HOR_RESOLUTION - widthLogin) / 2;
     DrawString(xLogin, yLogin, loginText);
+
+    uint8_t widthDelete = GetStringWidth(deleteText);
+    int16_t xDelete = (DISP_HOR_RESOLUTION - widthDelete) / 2;
+    DrawString(xDelete, yDelete, deleteText);
 
     // Draw highlight rectangle around the selected option
     const int8_t paddingX = 4;
@@ -277,10 +311,15 @@ void DrawMainMenu(uint8_t selectedIndex) {
         rectY = yReg - paddingY;
         rectW = widthReg + 2 * paddingX;
         rectH = 12 + 2 * paddingY;  // Approximate text height
-    } else {
+    } else if (selectedIndex == 1) {
         rectX = xLogin - paddingX;
         rectY = yLogin - paddingY;
         rectW = widthLogin + 2 * paddingX;
+        rectH = 12 + 2 * paddingY;  // Approximate text height
+    } else {  // selectedIndex == 2
+        rectX = xDelete - paddingX;
+        rectY = yDelete - paddingY;
+        rectW = widthDelete + 2 * paddingX;
         rectH = 12 + 2 * paddingY;  // Approximate text height
     }
 
@@ -291,17 +330,6 @@ void DrawMainMenu(uint8_t selectedIndex) {
     DrawLine(rectX + rectW, rectY, rectX + rectW, rectY + rectH); // right
 }
 
-// Display captured capacitance peaks for debugging/feedback
-void ShowCapPeaks(const char* title, uint16_t* peaks) {
-    char line1[20];
-    char line2[20];
-    for (uint8_t i = 0; i < PATTERN_LENGTH; i++) {
-        sprintf(line1, "%s", title);
-        sprintf(line2, "B%d: %u", i + 1, peaks[i]);
-        DisplayTwoLines(line1, line2);
-        delay(1200);
-    }
-}
 
 // ==================== PATTERN INPUT ====================
 
@@ -313,9 +341,9 @@ uint8_t IsInPattern(uint8_t* pattern, uint8_t length, uint8_t button) {
     return 0;
 }
 
-// Collect 4-button pattern using swipe detection (like ball movement)
-// Also capture peak capacitance for each touched button during the swipe.
-void CollectPattern(uint8_t* pattern, uint16_t* capPeaks) {
+// Collect pattern using swipe detection (like ball movement)
+// Also captures timing between button presses in milliseconds
+void CollectPattern(uint8_t* pattern, uint16_t* timing) {
     uint8_t patternLen = 0;
     int16_t aggr[5] = {0, 0, 0, 0, 0};
     uint8_t lastButton = 0xFF;  // Last button added to pattern
@@ -323,9 +351,12 @@ void CollectPattern(uint8_t* pattern, uint16_t* capPeaks) {
     const int16_t RELEASE_THRESHOLD = 2;
     const uint16_t timeout = 10;
     
-    // Initialize captured peaks
-    for (uint8_t i = 0; i < PATTERN_LENGTH; i++) {
-        capPeaks[i] = 0;
+    uint32_t lastButtonTime = 0;  // Time when last button was added (in loop iterations)
+    uint32_t currentTime = 0;     // Current time counter (in loop iterations)
+    
+    // Initialize timing array
+    for (uint8_t i = 0; i < PATTERN_LENGTH - 1; i++) {
+        timing[i] = 0;
     }
     
     // Show initial grid
@@ -358,23 +389,21 @@ void CollectPattern(uint8_t* pattern, uint16_t* capPeaks) {
         // If touching a valid button
         if (currentButton != 0xFF) {
             uint8_t buttonNum = currentButton + 1;  // Convert 0-4 to 1-5
-            uint16_t capNow = rawCTMU[currentButton];
-            
-            // If still on the same button, keep peak capacitance updated
-            if (currentButton == lastButton && patternLen > 0) {
-                uint8_t lastIndex = patternLen - 1;
-                if (capNow > capPeaks[lastIndex]) {
-                    capPeaks[lastIndex] = capNow;
-                }
-            }
             
             // Check if it's a NEW button (not the same as last, not already in pattern)
             if (currentButton != lastButton && !IsInPattern(pattern, patternLen, buttonNum)) {
-                // Add to pattern and record initial peak
+                // Calculate timing since last button (if not first button)
+                if (patternLen > 0) {
+                    // Time difference in loop iterations, convert to milliseconds
+                    uint32_t timeDiff = currentTime - lastButtonTime;
+                    timing[patternLen - 1] = (uint16_t)(timeDiff * timeout);  // Convert to milliseconds
+                }
+                
+                // Add to pattern
                 pattern[patternLen] = buttonNum;
-                capPeaks[patternLen] = capNow;
                 patternLen++;
                 lastButton = currentButton;
+                lastButtonTime = currentTime;  // Record time when this button was added
                 
                 // Update display with new line
                 UpdatePatternDisplay(pattern, patternLen);
@@ -382,6 +411,7 @@ void CollectPattern(uint8_t* pattern, uint16_t* capPeaks) {
         }
         
         delay(timeout);
+        currentTime++;  // Increment time counter
     }
     
     // Pattern complete - show final result for a moment
@@ -527,7 +557,7 @@ int main(void) {
         // Main menu with navigable highlight box:
         // Button mapping (index from WaitForButton):
         //   0 = UP, 2 = DOWN, 4 = CENTER (select)
-        uint8_t selectedIndex = 0;   // 0 = REGISTER, 1 = LOGIN
+        uint8_t selectedIndex = 0;   // 0 = REGISTER, 1 = LOGIN, 2 = DELETE
         uint8_t inMenu = 1;
 
         while (inMenu) {
@@ -539,7 +569,7 @@ int main(void) {
                     selectedIndex--;
                 }
             } else if (btn == 2) {   // DOWN
-                if (selectedIndex < 1) {
+                if (selectedIndex < 2) {
                     selectedIndex++;
                 }
             } else if (btn == 4) {   // CENTER = select
@@ -586,12 +616,11 @@ int main(void) {
             
             // Collect 5-button pattern (swipe-based)
             uint8_t pattern[PATTERN_LENGTH];
-            uint16_t capPeaks[PATTERN_LENGTH];
-            CollectPattern(pattern, capPeaks);
-            ShowCapPeaks("CAP REG", capPeaks);
+            uint16_t timing[PATTERN_LENGTH - 1];
+            CollectPattern(pattern, timing);
             
             // Register the user
-            if (RegisterUser(userId, pattern, capPeaks)) {
+            if (RegisterUser(userId, pattern, timing)) {
                 // Success: registration -> GREEN blink
                 BlinkRGB(0, 255, 0, 3, 200, 200);
                 DisplayTwoLines("REGISTRATION", "SUCCESSFUL!");
@@ -645,22 +674,26 @@ int main(void) {
             
             // Collect 5-button pattern (swipe-based)
             uint8_t pattern[PATTERN_LENGTH];
-            uint16_t capPeaks[PATTERN_LENGTH];
-            CollectPattern(pattern, capPeaks);
-            ShowCapPeaks("CAP TRY", capPeaks);
+            uint16_t timing[PATTERN_LENGTH - 1];
+            CollectPattern(pattern, timing);
             
             // Validate credentials
             ShowMessage("CHECKING...", 2);
-            uint8_t matchPercent = 0;
-            if (ValidateLogin(userId, pattern, capPeaks, &matchPercent)) {
+            uint8_t timingWarning = 0;
+            if (ValidateLogin(userId, pattern, timing, &timingWarning)) {
                 // Login successful - reset failed attempts
                 userDatabase[userIndex].failedAttempts = 0;
                 
+                // Check if timing warning should be shown
+                if (timingWarning) {
+                    // Show timing warning but still allow login
+                    DisplayTwoLines("TIMING WARNING", "");
+                    delay(2000);
+                }
+                
                 // Success: login -> GREEN blink
                 BlinkRGB(0, 255, 0, 3, 200, 200);
-                char msg[30];
-                sprintf(msg, "MATCH %u%%", matchPercent);
-                DisplayTwoLines("LOGIN SUCCESS", msg);
+                DisplayTwoLines("LOGIN SUCCESS", "");
                 delay(2000);
             } else {
                 // Login failed - increment failed attempts
@@ -673,18 +706,103 @@ int main(void) {
                     DisplayTwoLines("ACCOUNT", "LOCKED!");
                     delay(3000);
                 } else {
-                    // Show remaining attempts and match percent
+                    // Show remaining attempts
                     // Failure: wrong pattern but attempts left -> RED blink
                     BlinkRGB(255, 0, 0, 3, 200, 200);
                     char msg[30];
                     uint8_t remaining = 3 - userDatabase[userIndex].failedAttempts;
-                    sprintf(msg, "MATCH %u%%", matchPercent);
-                    DisplayTwoLines("WRONG PATTERN!", msg);
+                    DisplayTwoLines("WRONG PATTERN!", "");
                     delay(3000);
                     sprintf(msg, "%u ATTEMPTS LEFT", remaining);
                     DisplayCentered(msg);
                     delay(3000);
                 }
+            }
+            ShowMessage("REDIRECTING...", 1);
+            
+        } else if (selectedIndex == 2) {  // DELETE selected
+            // Delete user flow
+            ShowMessage("DELETE MENU", 1);
+            ShowMessage("LOADING...", 2);
+            
+            // Check if database is empty
+            if (userCount == 0) {
+                DisplayTwoLines("FIRST REGISTER", "USERS!");
+                delay(3000);
+                ShowMessage("REDIRECTING...", 1);
+                continue;  // Back to menu
+            }
+            
+            // Prompt for ID
+            DisplayTwoLines("PLEASE ENTER", "ID");
+            delay(2000);
+            
+            // Collect 2-digit ID (automatically proceeds)
+            int16_t userId = CollectDigits(2, "ID");
+            
+            // Check if user exists
+            int8_t userIndex = FindUser(userId);
+            if (userIndex == -1) {
+                ShowMessage("CHECKING...", 1);
+                // Failure: invalid user ID -> RED blink
+                BlinkRGB(255, 0, 0, 3, 200, 200);
+                DisplayTwoLines("INVALID", "USER ID!");
+                delay(3000);
+                ShowMessage("REDIRECTING...", 1);
+                continue;  // Back to menu
+            }
+            
+            // Prompt for Pattern (authentication required)
+            DisplayTwoLines("AUTHENTICATE", "TO DELETE");
+            delay(2000);
+            
+            // Collect 5-button pattern (swipe-based)
+            uint8_t pattern[PATTERN_LENGTH];
+            uint16_t timing[PATTERN_LENGTH - 1];
+            CollectPattern(pattern, timing);
+            
+            // Validate credentials
+            ShowMessage("CHECKING...", 2);
+            uint8_t timingWarning = 0;
+            if (ValidateLogin(userId, pattern, timing, &timingWarning)) {
+                // Check if timing warning should be shown
+                if (timingWarning) {
+                    // Show timing warning but still allow deletion
+                    DisplayTwoLines("TIMING WARNING", "");
+                    delay(2000);
+                }
+                
+                // Authentication successful - show confirmation alert
+                DisplayTwoLines("DELETE USER?", "CENTER=YES");
+                delay(2000);
+                
+                // Wait for confirmation (CENTER = confirm, any other = cancel)
+                uint8_t confirmBtn = WaitForButton();
+                
+                if (confirmBtn == 4) {  // CENTER = YES, confirm deletion
+                    // Delete the user
+                    if (DeleteUser(userId)) {
+                        // Success: deletion -> GREEN blink
+                        BlinkRGB(0, 255, 0, 3, 200, 200);
+                        DisplayTwoLines("USER", "DELETED!");
+                        delay(2000);
+                    } else {
+                        // Failure: deletion failed -> RED blink
+                        BlinkRGB(255, 0, 0, 3, 200, 200);
+                        DisplayTwoLines("DELETE", "FAILED!");
+                        delay(2000);
+                    }
+                } else {
+                    // User cancelled - no action
+                    DisplayTwoLines("CANCELLED", "");
+                    delay(2000);
+                }
+            } else {
+                // Authentication failed - don't allow deletion
+                // Failure: wrong pattern -> RED blink
+                BlinkRGB(255, 0, 0, 3, 200, 200);
+                DisplayTwoLines("AUTH FAILED!", "");
+                delay(3000);
             }
             ShowMessage("REDIRECTING...", 1);
     }
