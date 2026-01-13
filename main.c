@@ -30,6 +30,7 @@ typedef struct {
     uint8_t pattern[PATTERN_LENGTH];  // 5-button pattern (1-5)
     uint8_t isActive;            // 1 = slot used, 0 = empty
     uint8_t failedAttempts;      // Failed login attempts counter
+    uint8_t isLoggedIn;         // 1 = currently logged in, 0 = not logged in
     uint16_t timing[PATTERN_LENGTH - 1]; // Inter-button timing in milliseconds (4 values for 5-button pattern)
 } User;
 
@@ -48,6 +49,7 @@ void InitDatabase() {
         userDatabase[i].userId = 0;
         userDatabase[i].isActive = 0;
         userDatabase[i].failedAttempts = 0;
+        userDatabase[i].isLoggedIn = 0;
         for (uint8_t j = 0; j < PATTERN_LENGTH; j++) {
             userDatabase[i].pattern[j] = 0;
         }
@@ -102,6 +104,7 @@ uint8_t RegisterUser(int16_t userId, uint8_t* pattern, uint16_t* timing) {
             }
             userDatabase[i].isActive = 1;
             userDatabase[i].failedAttempts = 0;
+            userDatabase[i].isLoggedIn = 0;
             userCount++;
             return 1;  // Success
         }
@@ -164,10 +167,11 @@ uint8_t DeleteUser(int16_t userId) {
         return 0;  // User not found
     }
     
-    // Mark slot as inactive and clear data
+            // Mark slot as inactive and clear data
     userDatabase[index].isActive = 0;
     userDatabase[index].userId = 0;
     userDatabase[index].failedAttempts = 0;
+    userDatabase[index].isLoggedIn = 0;
     for (uint8_t j = 0; j < PATTERN_LENGTH; j++) {
         userDatabase[index].pattern[j] = 0;
     }
@@ -692,8 +696,9 @@ int main(void) {
             ShowMessage("CHECKING...", 2);
             uint8_t timingWarning = 0;
             if (ValidateLogin(userId, pattern, timing, &timingWarning)) {
-                // Login successful - reset failed attempts
+                // Login successful - reset failed attempts and mark as logged in
                 userDatabase[userIndex].failedAttempts = 0;
+                userDatabase[userIndex].isLoggedIn = 1;
                 
                 // Check if timing warning should be shown
                 if (timingWarning) {
@@ -818,7 +823,7 @@ int main(void) {
             ShowMessage("REDIRECTING...", 1);
             
         } else if (selectedIndex == 3) {  // LIST selected
-            // List all registered users
+            // List all registered users with statistics
             ShowMessage("LIST MENU", 1);
             ShowMessage("LOADING...", 1);
             
@@ -830,35 +835,85 @@ int main(void) {
                 continue;  // Back to menu
             }
             
-            // Display all registered users
+            // Count logged in users and locked accounts
+            uint8_t loggedInCount = 0;
+            uint8_t lockedCount = 0;
+            for (uint8_t i = 0; i < 10; i++) {
+                if (userDatabase[i].isActive) {
+                    if (userDatabase[i].isLoggedIn) {
+                        loggedInCount++;
+                    }
+                    if (userDatabase[i].failedAttempts >= 3) {
+                        lockedCount++;
+                    }
+                }
+            }
+            
+            // Display statistics screen
             SetColor(BLACK);
             ClearDevice();
             SetColor(WHITE);
             
-            // Show header
-            DrawString(32, 4, "REGISTERED USERS:");
+            // Show statistics header
+            DrawString(24, 4, "USER STATISTICS:");
             
-            // Display up to 5 users (limited by screen space)
+            // Show total registered users
+            char totalMsg[30];
+            sprintf(totalMsg, "TOTAL: %d", userCount);
+            DrawString(8, 18, totalMsg);
+            
+            // Show logged in users
+            char loggedMsg[30];
+            sprintf(loggedMsg, "LOGGED IN: %d", loggedInCount);
+            DrawString(8, 30, loggedMsg);
+            
+            // Show locked accounts
+            char lockedMsg[30];
+            sprintf(lockedMsg, "LOCKED: %d", lockedCount);
+            DrawString(8, 42, lockedMsg);
+            
+            // Wait for button press to see user list
+            delay(3000);
+            WaitForButton();
+            
+            // Display user list with status
+            SetColor(BLACK);
+            ClearDevice();
+            SetColor(WHITE);
+            
+            DrawString(32, 4, "USER LIST:");
+            
+            // Display users with their status
             uint8_t displayCount = 0;
             uint8_t shownCount = 0;
-            for (uint8_t i = 0; i < 10 && shownCount < 5; i++) {
+            for (uint8_t i = 0; i < 10 && shownCount < 4; i++) {
                 if (userDatabase[i].isActive) {
-                    char userLine[20];
-                    sprintf(userLine, "ID: %02d", userDatabase[i].userId);
-                    DrawString(8, 16 + displayCount * 10, userLine);
+                    char userLine[30];
+                    char status[10] = "";
+                    
+                    // Determine status
+                    if (userDatabase[i].isLoggedIn) {
+                        sprintf(status, " [IN]");
+                    } else if (userDatabase[i].failedAttempts >= 3) {
+                        sprintf(status, " [LOCK]");
+                    }
+                    
+                    sprintf(userLine, "ID:%02d%s", userDatabase[i].userId, status);
+                    DrawString(8, 16 + displayCount * 12, userLine);
                     displayCount++;
                     shownCount++;
                 }
             }
             
             // If there are more users, show indicator
-            if (userCount > 5) {
+            if (userCount > 4) {
                 char moreMsg[20];
-                sprintf(moreMsg, "...%d MORE", userCount - 5);
-                DrawString(8, 16 + displayCount * 10, moreMsg);
+                sprintf(moreMsg, "...%d MORE", userCount - 4);
+                DrawString(8, 16 + displayCount * 12, moreMsg);
             }
             
             // Wait for button press to return to menu
+            delay(2000);
             WaitForButton();
             ShowMessage("REDIRECTING...", 1);
     }
