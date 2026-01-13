@@ -303,7 +303,7 @@ void DrawMainMenu(uint8_t selectedIndex) {
 
     // Draw highlight rectangle around the selected option
     const int8_t paddingX = 4;
-    const int8_t paddingY = 4;
+    const int8_t paddingY = 2;  // Reduced to prevent overlap with menu items below
     int16_t rectX, rectY, rectW, rectH;
 
     if (selectedIndex == 0) {
