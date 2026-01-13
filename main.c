@@ -273,7 +273,7 @@ void DisplayTwoLines(const char* line1, const char* line2) {
 }
 
 // Draw main menu with a rectangular highlight around the selected option
-// selectedIndex: 0 = REGISTER, 1 = LOGIN, 2 = DELETE
+// selectedIndex: 0 = REGISTER, 1 = LOGIN, 2 = DELETE, 3 = LIST
 void DrawMainMenu(uint8_t selectedIndex) {
     SetColor(BLACK);
     ClearDevice();
@@ -282,11 +282,13 @@ void DrawMainMenu(uint8_t selectedIndex) {
     const char* regText = "REGISTER";
     const char* loginText = "LOGIN";
     const char* deleteText = "DELETE";
+    const char* listText = "LIST";
 
-    // Y positions for the three options
-    const int16_t yReg = 8;
-    const int16_t yLogin = 28;
-    const int16_t yDelete = 48;
+    // Y positions for the four options (adjusted spacing to fit all 4 items)
+    const int16_t yReg = 4;
+    const int16_t yLogin = 20;
+    const int16_t yDelete = 36;
+    const int16_t yList = 52;
 
     // Draw text centered
     uint8_t widthReg = GetStringWidth(regText);
@@ -300,6 +302,10 @@ void DrawMainMenu(uint8_t selectedIndex) {
     uint8_t widthDelete = GetStringWidth(deleteText);
     int16_t xDelete = (DISP_HOR_RESOLUTION - widthDelete) / 2;
     DrawString(xDelete, yDelete, deleteText);
+
+    uint8_t widthList = GetStringWidth(listText);
+    int16_t xList = (DISP_HOR_RESOLUTION - widthList) / 2;
+    DrawString(xList, yList, listText);
 
     // Draw highlight rectangle around the selected option
     const int8_t paddingX = 4;
@@ -316,10 +322,15 @@ void DrawMainMenu(uint8_t selectedIndex) {
         rectY = yLogin - paddingY;
         rectW = widthLogin + 2 * paddingX;
         rectH = 12 + 2 * paddingY;  // Approximate text height
-    } else {  // selectedIndex == 2
+    } else if (selectedIndex == 2) {
         rectX = xDelete - paddingX;
         rectY = yDelete - paddingY;
         rectW = widthDelete + 2 * paddingX;
+        rectH = 12 + 2 * paddingY;  // Approximate text height
+    } else {  // selectedIndex == 3 (LIST)
+        rectX = xList - paddingX;
+        rectY = yList - paddingY;
+        rectW = widthList + 2 * paddingX;
         rectH = 12 + 2 * paddingY;  // Approximate text height
     }
 
@@ -557,7 +568,7 @@ int main(void) {
         // Main menu with navigable highlight box:
         // Button mapping (index from WaitForButton):
         //   0 = UP, 2 = DOWN, 4 = CENTER (select)
-        uint8_t selectedIndex = 0;   // 0 = REGISTER, 1 = LOGIN, 2 = DELETE
+        uint8_t selectedIndex = 0;   // 0 = REGISTER, 1 = LOGIN, 2 = DELETE, 3 = LIST
         uint8_t inMenu = 1;
 
         while (inMenu) {
@@ -569,7 +580,7 @@ int main(void) {
                     selectedIndex--;
                 }
             } else if (btn == 2) {   // DOWN
-                if (selectedIndex < 2) {
+                if (selectedIndex < 3) {
                     selectedIndex++;
                 }
             } else if (btn == 4) {   // CENTER = select
@@ -804,6 +815,51 @@ int main(void) {
                 DisplayTwoLines("AUTH FAILED!", "");
                 delay(3000);
             }
+            ShowMessage("REDIRECTING...", 1);
+            
+        } else if (selectedIndex == 3) {  // LIST selected
+            // List all registered users
+            ShowMessage("LIST MENU", 1);
+            ShowMessage("LOADING...", 1);
+            
+            // Check if database is empty
+            if (userCount == 0) {
+                DisplayTwoLines("NO USERS", "REGISTERED!");
+                delay(3000);
+                ShowMessage("REDIRECTING...", 1);
+                continue;  // Back to menu
+            }
+            
+            // Display all registered users
+            SetColor(BLACK);
+            ClearDevice();
+            SetColor(WHITE);
+            
+            // Show header
+            DrawString(32, 4, "REGISTERED USERS:");
+            
+            // Display up to 5 users (limited by screen space)
+            uint8_t displayCount = 0;
+            uint8_t shownCount = 0;
+            for (uint8_t i = 0; i < 10 && shownCount < 5; i++) {
+                if (userDatabase[i].isActive) {
+                    char userLine[20];
+                    sprintf(userLine, "ID: %02d", userDatabase[i].userId);
+                    DrawString(8, 16 + displayCount * 10, userLine);
+                    displayCount++;
+                    shownCount++;
+                }
+            }
+            
+            // If there are more users, show indicator
+            if (userCount > 5) {
+                char moreMsg[20];
+                sprintf(moreMsg, "...%d MORE", userCount - 5);
+                DrawString(8, 16 + displayCount * 10, moreMsg);
+            }
+            
+            // Wait for button press to return to menu
+            WaitForButton();
             ShowMessage("REDIRECTING...", 1);
     }
     }
