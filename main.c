@@ -114,7 +114,7 @@ uint8_t RegisterUser(int16_t userId, uint8_t* pattern, uint16_t* timing) {
 // Returns 1 on success, 0 on failure.
 // timingWarningOut: set to 1 if pattern matches but timing doesn't (warning case)
 uint8_t ValidateLogin(int16_t userId, uint8_t* pattern, uint16_t* timing, uint8_t* timingWarningOut) {
-    const uint8_t TIMING_TOLERANCE_PERCENT = 50; // 50% tolerance for timing match
+    const uint8_t TIMING_TOLERANCE_PERCENT = 70; // 70% tolerance for timing match
     
     *timingWarningOut = 0;
     
@@ -285,10 +285,10 @@ void DrawMainMenu(uint8_t selectedIndex) {
     const char* listText = "LIST";
 
     // Y positions for the four options (adjusted spacing to fit all 4 items)
-    const int16_t yReg = 4;
-    const int16_t yLogin = 20;
-    const int16_t yDelete = 36;
-    const int16_t yList = 52;
+    const int16_t yReg = 6;
+    const int16_t yLogin = 22;
+    const int16_t yDelete = 38;
+    const int16_t yList = 54;
 
     // Draw text centered
     uint8_t widthReg = GetStringWidth(regText);
@@ -309,7 +309,7 @@ void DrawMainMenu(uint8_t selectedIndex) {
 
     // Draw highlight rectangle around the selected option
     const int8_t paddingX = 4;
-    const int8_t paddingY = 4;
+    const int8_t paddingY = 2;  // Reduced to prevent overlap with menu items below
     int16_t rectX, rectY, rectW, rectH;
 
     if (selectedIndex == 0) {
