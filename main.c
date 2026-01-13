@@ -20,6 +20,37 @@
 #include "PIC24FStarter.h"
 #include <stdio.h>
 
+// ==================== FUNCTION PROTOTYPES ====================
+
+// UI Functions
+void DisplayCentered(const char* text);
+void ShowMessage(const char* text, uint8_t seconds);
+void DisplayTwoLines(const char* line1, const char* line2);
+void DrawMainMenu(uint8_t selectedIndex);
+void DrawListSubMenu(uint8_t selectedIndex);
+void DisplayUserList(uint8_t filterType);
+
+// Input Functions
+uint8_t WaitForButton(void);
+int16_t CollectDigits(uint8_t numDigits, const char* prompt);
+void CollectPattern(uint8_t* pattern, uint16_t* timing);
+
+// Database Functions
+void InitDatabase(void);
+int8_t FindUser(int16_t userId);
+uint8_t RegisterUser(int16_t userId, uint8_t* pattern, uint16_t* timing);
+uint8_t ValidateLogin(int16_t userId, uint8_t* pattern, uint16_t* timing, uint8_t* timingWarningOut);
+uint8_t DeleteUser(int16_t userId);
+
+// Pattern Display Functions
+void DrawPatternGrid(void);
+void DrawPatternLines(uint8_t* pattern, uint8_t length);
+void UpdatePatternDisplay(uint8_t* pattern, uint8_t length);
+
+// Utility Functions
+void delay(unsigned int milliseconds);
+void BlinkRGB(uint8_t r, uint8_t g, uint8_t b, uint8_t times, uint16_t onMs, uint16_t offMs);
+
 // ==================== USER DATABASE ====================
 
 #define PATTERN_LENGTH 5  // Fixed 5-button pattern
@@ -345,6 +376,144 @@ void DrawMainMenu(uint8_t selectedIndex) {
     DrawLine(rectX + rectW, rectY, rectX + rectW, rectY + rectH); // right
 }
 
+// Draw LIST submenu with a rectangular highlight around the selected option
+// selectedIndex: 0 = REGISTERED, 1 = LOGGED IN, 2 = LOCKED, 3 = DELETED
+void DrawListSubMenu(uint8_t selectedIndex) {
+    SetColor(BLACK);
+    ClearDevice();
+    SetColor(WHITE);
+
+    const char* regUsersText = "REGISTERED";
+    const char* loggedInText = "LOGGED IN";
+    const char* lockedText = "LOCKED";
+    const char* deletedText = "DELETED";
+
+    // Y positions for the four options (adjusted spacing to fit all 4 items)
+    const int16_t yReg = 6;
+    const int16_t yLogged = 22;
+    const int16_t yLocked = 38;
+    const int16_t yDeleted = 54;
+
+    // Draw text centered
+    uint8_t widthReg = GetStringWidth(regUsersText);
+    int16_t xReg = (DISP_HOR_RESOLUTION - widthReg) / 2;
+    DrawString(xReg, yReg, regUsersText);
+
+    uint8_t widthLogged = GetStringWidth(loggedInText);
+    int16_t xLogged = (DISP_HOR_RESOLUTION - widthLogged) / 2;
+    DrawString(xLogged, yLogged, loggedInText);
+
+    uint8_t widthLocked = GetStringWidth(lockedText);
+    int16_t xLocked = (DISP_HOR_RESOLUTION - widthLocked) / 2;
+    DrawString(xLocked, yLocked, lockedText);
+
+    uint8_t widthDeleted = GetStringWidth(deletedText);
+    int16_t xDeleted = (DISP_HOR_RESOLUTION - widthDeleted) / 2;
+    DrawString(xDeleted, yDeleted, deletedText);
+
+    // Draw highlight rectangle around the selected option
+    const int8_t paddingX = 4;
+    const int8_t paddingY = 2;
+    int16_t rectX, rectY, rectW, rectH;
+
+    if (selectedIndex == 0) {
+        rectX = xReg - paddingX;
+        rectY = yReg - paddingY;
+        rectW = widthReg + 2 * paddingX;
+        rectH = 12 + 2 * paddingY;
+    } else if (selectedIndex == 1) {
+        rectX = xLogged - paddingX;
+        rectY = yLogged - paddingY;
+        rectW = widthLogged + 2 * paddingX;
+        rectH = 12 + 2 * paddingY;
+    } else if (selectedIndex == 2) {
+        rectX = xLocked - paddingX;
+        rectY = yLocked - paddingY;
+        rectW = widthLocked + 2 * paddingX;
+        rectH = 12 + 2 * paddingY;
+    } else {  // selectedIndex == 3 (DELETED)
+        rectX = xDeleted - paddingX;
+        rectY = yDeleted - paddingY;
+        rectW = widthDeleted + 2 * paddingX;
+        rectH = 12 + 2 * paddingY;
+    }
+
+    // Draw rectangle outline using four lines
+    DrawLine(rectX, rectY, rectX + rectW, rectY);               // top
+    DrawLine(rectX, rectY + rectH, rectX + rectW, rectY + rectH); // bottom
+    DrawLine(rectX, rectY, rectX, rectY + rectH);               // left
+    DrawLine(rectX + rectW, rectY, rectX + rectW, rectY + rectH); // right
+}
+
+// Display list of users based on filter type
+// filterType: 0 = all registered, 1 = logged in, 2 = locked, 3 = deleted
+void DisplayUserList(uint8_t filterType) {
+    SetColor(BLACK);
+    ClearDevice();
+    SetColor(WHITE);
+    
+    // Set header based on filter type
+    const char* header = "";
+    if (filterType == 0) {
+        header = "REGISTERED:";
+    } else if (filterType == 1) {
+        header = "LOGGED IN:";
+    } else if (filterType == 2) {
+        header = "LOCKED:";
+    } else {
+        header = "DELETED:";
+    }
+    
+    uint8_t headerWidth = GetStringWidth(header);
+    int16_t xHeader = (DISP_HOR_RESOLUTION - headerWidth) / 2;
+    DrawString(xHeader, 4, header);
+    
+    // Count and display users
+    uint8_t displayCount = 0;
+    uint8_t shownCount = 0;
+    
+    for (uint8_t i = 0; i < 10 && shownCount < 4; i++) {
+        uint8_t shouldDisplay = 0;
+        
+        if (filterType == 0) {
+            // Show all registered users
+            shouldDisplay = userDatabase[i].isActive;
+        } else if (filterType == 1) {
+            // Show logged in users
+            shouldDisplay = userDatabase[i].isActive && userDatabase[i].isLoggedIn;
+        } else if (filterType == 2) {
+            // Show locked users (3 failed attempts)
+            shouldDisplay = userDatabase[i].isActive && userDatabase[i].failedAttempts >= 3;
+        } else {
+            // Deleted users - these are removed from database, so show message
+            shouldDisplay = 0;
+        }
+        
+        if (shouldDisplay) {
+            char userLine[20];
+            sprintf(userLine, "ID: %02d", userDatabase[i].userId);
+            DrawString(8, 18 + displayCount * 12, userLine);
+            displayCount++;
+            shownCount++;
+        }
+    }
+    
+    // Handle special cases
+    if (filterType == 3) {
+        // Deleted users are removed from database
+        DrawString(8, 18, "NOT TRACKED");
+        DrawString(8, 30, "(REMOVED FROM");
+        DrawString(8, 42, "DATABASE)");
+    } else if (shownCount == 0 && displayCount == 0) {
+        // No users found for this filter
+        DrawString(8, 18, "NONE");
+    }
+    
+    // Wait for button press to return
+    delay(2000);
+    WaitForButton();
+}
+
 
 // ==================== PATTERN INPUT ====================
 
@@ -363,7 +532,6 @@ void CollectPattern(uint8_t* pattern, uint16_t* timing) {
     int16_t aggr[5] = {0, 0, 0, 0, 0};
     uint8_t lastButton = 0xFF;  // Last button added to pattern
     const int16_t THRESHOLD = 6;
-    const int16_t RELEASE_THRESHOLD = 2;
     const uint16_t timeout = 10;
     
     uint32_t lastButtonTime = 0;  // Time when last button was added (in loop iterations)
@@ -823,9 +991,8 @@ int main(void) {
             ShowMessage("REDIRECTING...", 1);
             
         } else if (selectedIndex == 3) {  // LIST selected
-            // List all registered users with statistics
+            // LIST submenu navigation
             ShowMessage("LIST MENU", 1);
-            ShowMessage("LOADING...", 1);
             
             // Check if database is empty
             if (userCount == 0) {
@@ -835,86 +1002,38 @@ int main(void) {
                 continue;  // Back to menu
             }
             
-            // Count logged in users and locked accounts
-            uint8_t loggedInCount = 0;
-            uint8_t lockedCount = 0;
-            for (uint8_t i = 0; i < 10; i++) {
-                if (userDatabase[i].isActive) {
-                    if (userDatabase[i].isLoggedIn) {
-                        loggedInCount++;
+            // LIST submenu with navigable highlight box:
+            // Button mapping (index from WaitForButton):
+            //   0 = UP, 2 = DOWN, 4 = CENTER (select), 3 = LEFT (back)
+            uint8_t listSubIndex = 0;   // 0 = REGISTERED, 1 = LOGGED IN, 2 = LOCKED, 3 = DELETED
+            uint8_t inListSubMenu = 1;
+            
+            while (inListSubMenu) {
+                DrawListSubMenu(listSubIndex);
+                uint8_t btn = WaitForButton();
+                
+                if (btn == 0) {          // UP
+                    if (listSubIndex > 0) {
+                        listSubIndex--;
                     }
-                    if (userDatabase[i].failedAttempts >= 3) {
-                        lockedCount++;
+                } else if (btn == 2) {   // DOWN
+                    if (listSubIndex < 3) {
+                        listSubIndex++;
                     }
+                } else if (btn == 4) {   // CENTER = select
+                    inListSubMenu = 0;
+                } else if (btn == 3) {   // LEFT = back to main menu
+                    inListSubMenu = 0;
+                    listSubIndex = 255;  // Special value to indicate back
                 }
+                // Other buttons (1=RIGHT) are ignored in menu
             }
             
-            // Display statistics screen
-            SetColor(BLACK);
-            ClearDevice();
-            SetColor(WHITE);
-            
-            // Show statistics header
-            DrawString(24, 4, "USER STATISTICS:");
-            
-            // Show total registered users
-            char totalMsg[30];
-            sprintf(totalMsg, "TOTAL: %d", userCount);
-            DrawString(8, 18, totalMsg);
-            
-            // Show logged in users
-            char loggedMsg[30];
-            sprintf(loggedMsg, "LOGGED IN: %d", loggedInCount);
-            DrawString(8, 30, loggedMsg);
-            
-            // Show locked accounts
-            char lockedMsg[30];
-            sprintf(lockedMsg, "LOCKED: %d", lockedCount);
-            DrawString(8, 42, lockedMsg);
-            
-            // Wait for button press to see user list
-            delay(3000);
-            WaitForButton();
-            
-            // Display user list with status
-            SetColor(BLACK);
-            ClearDevice();
-            SetColor(WHITE);
-            
-            DrawString(32, 4, "USER LIST:");
-            
-            // Display users with their status
-            uint8_t displayCount = 0;
-            uint8_t shownCount = 0;
-            for (uint8_t i = 0; i < 10 && shownCount < 4; i++) {
-                if (userDatabase[i].isActive) {
-                    char userLine[30];
-                    char status[10] = "";
-                    
-                    // Determine status
-                    if (userDatabase[i].isLoggedIn) {
-                        sprintf(status, " [IN]");
-                    } else if (userDatabase[i].failedAttempts >= 3) {
-                        sprintf(status, " [LOCK]");
-                    }
-                    
-                    sprintf(userLine, "ID:%02d%s", userDatabase[i].userId, status);
-                    DrawString(8, 16 + displayCount * 12, userLine);
-                    displayCount++;
-                    shownCount++;
-                }
+            // If user selected an option (not back), display the list
+            if (listSubIndex != 255) {
+                DisplayUserList(listSubIndex);
             }
             
-            // If there are more users, show indicator
-            if (userCount > 4) {
-                char moreMsg[20];
-                sprintf(moreMsg, "...%d MORE", userCount - 4);
-                DrawString(8, 16 + displayCount * 12, moreMsg);
-            }
-            
-            // Wait for button press to return to menu
-            delay(2000);
-            WaitForButton();
             ShowMessage("REDIRECTING...", 1);
     }
     }
