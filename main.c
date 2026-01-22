@@ -26,7 +26,7 @@
 void DisplayCentered(const char* text);
 void ShowMessage(const char* text, uint8_t seconds);
 void DisplayTwoLines(const char* line1, const char* line2);
-void DrawMainMenu(uint8_t selectedIndex);
+void DrawMainMenu(uint8_t screenIndex, uint8_t selectedIndex);
 void DrawListSubMenu(uint8_t selectedIndex);
 void DisplayUserList(uint8_t filterType);
 
@@ -39,13 +39,21 @@ void CollectPattern(uint8_t* pattern, uint16_t* timing);
 void InitDatabase(void);
 int8_t FindUser(int16_t userId);
 uint8_t RegisterUser(int16_t userId, uint8_t* pattern, uint16_t* timing);
-uint8_t ValidateLogin(int16_t userId, uint8_t* pattern, uint16_t* timing, uint8_t* timingWarningOut);
+uint8_t ValidateLogin(int16_t userId, uint8_t* pattern, uint16_t* timing, uint8_t* timingWarningOut, uint8_t* segmentMatches);
 uint8_t DeleteUser(int16_t userId);
 
 // Pattern Display Functions
 void DrawPatternGrid(void);
 void DrawPatternLines(uint8_t* pattern, uint8_t length);
 void UpdatePatternDisplay(uint8_t* pattern, uint8_t length);
+
+// Visual Feedback Functions
+void DrawCheckmark(int16_t x, int16_t y);
+void DrawX(int16_t x, int16_t y);
+void ShowLoadingAnimation(const char* baseText, uint16_t durationMs);
+void ShowSuccess(const char* message);
+void ShowError(const char* message);
+void ShowTimingAnalysis(uint8_t* segmentMatches, uint8_t totalSegments);
 
 // Utility Functions
 void delay(unsigned int milliseconds);
@@ -144,13 +152,20 @@ uint8_t RegisterUser(int16_t userId, uint8_t* pattern, uint16_t* timing) {
     return 0;  // Should never reach here
 }
 
-// Validate login using pattern and timing.
+// Validate login using pattern and timing with per-segment analysis.
 // Returns 1 on success, 0 on failure.
 // timingWarningOut: set to 1 if pattern matches but timing doesn't (warning case)
-uint8_t ValidateLogin(int16_t userId, uint8_t* pattern, uint16_t* timing, uint8_t* timingWarningOut) {
-    const uint8_t TIMING_TOLERANCE_PERCENT = 70; // 70% tolerance for timing match
+// segmentMatches: array of 4 values (1=match, 0=mismatch) for each timing segment
+uint8_t ValidateLogin(int16_t userId, uint8_t* pattern, uint16_t* timing, uint8_t* timingWarningOut, uint8_t* segmentMatches) {
+    const uint8_t TIMING_TOLERANCE_PERCENT = 40; // 40% tolerance for timing match
+    const uint8_t MIN_SEGMENTS_REQUIRED = 2;     // At least 2/4 segments must match
     
     *timingWarningOut = 0;
+    
+    // Initialize segment matches array
+    for (uint8_t i = 0; i < PATTERN_LENGTH - 1; i++) {
+        segmentMatches[i] = 0;
+    }
     
     int8_t index = FindUser(userId);
     if (index == -1) {
@@ -162,33 +177,41 @@ uint8_t ValidateLogin(int16_t userId, uint8_t* pattern, uint16_t* timing, uint8_
         return 0;  // Wrong pattern
     }
     
-    // Check timing with tolerance
-    uint8_t timingMatch = 1;
+    // Check timing with tolerance - analyze each segment individually
+    uint8_t segmentsMatched = 0;
+    
     for (uint8_t i = 0; i < PATTERN_LENGTH - 1; i++) {
         uint16_t stored = userDatabase[index].timing[i];
         uint16_t input = timing[i];
         
         if (stored == 0 || input == 0) {
-            timingMatch = 0;
-            break;
+            segmentMatches[i] = 0;
+            continue;
         }
         
         // Calculate difference percentage
         uint16_t diff = (stored > input) ? (stored - input) : (input - stored);
         uint32_t diffPercent = (uint32_t)diff * 100 / stored;
         
-        if (diffPercent > TIMING_TOLERANCE_PERCENT) {
-            timingMatch = 0;
-            break;
+        if (diffPercent <= TIMING_TOLERANCE_PERCENT) {
+            segmentMatches[i] = 1;  // This segment matches
+            segmentsMatched++;
+        } else {
+            segmentMatches[i] = 0;  // This segment doesn't match
         }
     }
     
-    // If pattern matches but timing doesn't, set warning flag
-    if (!timingMatch) {
+    // Require at least MIN_SEGMENTS_REQUIRED segments to match for successful login
+    if (segmentsMatched < MIN_SEGMENTS_REQUIRED) {
+        return 0;  // Login failed - not enough segments matched
+    }
+    
+    // If not all segments match, set warning flag (but still allow login)
+    if (segmentsMatched < (PATTERN_LENGTH - 1)) {
         *timingWarningOut = 1;
     }
     
-    return 1;  // Pattern matches (timing warning is separate)
+    return 1;  // Pattern matches and enough timing segments match
 }
 
 // Delete user from database, returns 1 on success, 0 on failure
@@ -245,6 +268,134 @@ void UpdatePatternDisplay(uint8_t* pattern, uint8_t length) {
         uint8_t last = pattern[length-1] - 1;
         DrawFilledCircle(buttonX[last], buttonY[last], 5);
     }
+    // Show pattern progress counter (e.g., "3/5")
+    char progress[6];
+    sprintf(progress, "%d/5", length);
+    DrawString(100, 4, progress);
+}
+
+// ==================== VISUAL FEEDBACK ====================
+
+// Draw a checkmark symbol (✓) using lines
+void DrawCheckmark(int16_t x, int16_t y) {
+    SetColor(WHITE);
+    // Draw checkmark: two lines forming a check
+    DrawLine(x, y + 2, x + 2, y + 4);
+    DrawLine(x + 2, y + 4, x + 5, y + 1);
+}
+
+// Draw an X symbol (✗) using lines
+void DrawX(int16_t x, int16_t y) {
+    SetColor(WHITE);
+    // Draw X: two diagonal lines
+    DrawLine(x, y, x + 5, y + 5);
+    DrawLine(x + 5, y, x, y + 5);
+}
+
+// Show loading animation with animated dots
+// Returns after specified duration or when interrupted
+void ShowLoadingAnimation(const char* baseText, uint16_t durationMs) {
+    uint16_t elapsed = 0;
+    uint8_t dotCount = 0;
+    const uint16_t dotInterval = 300;  // Change dots every 300ms
+    
+    while (elapsed < durationMs) {
+        char loadingText[20];
+        uint8_t pos = 0;
+        
+        // Copy base text
+        const char* src = baseText;
+        while (*src && pos < 19) {
+            loadingText[pos++] = *src++;
+        }
+        
+        // Add dots based on animation state
+        uint8_t dots = (dotCount % 4);  // Cycle: 0, 1, 2, 3 dots
+        for (uint8_t i = 0; i < dots && pos < 19; i++) {
+            loadingText[pos++] = '.';
+        }
+        loadingText[pos] = '\0';
+        
+        DisplayCentered(loadingText);
+        
+        delay(dotInterval);
+        elapsed += dotInterval;
+        dotCount++;
+    }
+}
+
+// Show success message with checkmark
+void ShowSuccess(const char* message) {
+    SetColor(BLACK);
+    ClearDevice();
+    SetColor(WHITE);
+    
+    // Draw checkmark at top center
+    DrawCheckmark(54, 8);
+    
+    // Draw message below checkmark
+    uint8_t width = GetStringWidth(message);
+    int16_t xPos = (DISP_HOR_RESOLUTION - width) / 2;
+    DrawString(xPos, 30, message);
+}
+
+// Show error message with X symbol
+void ShowError(const char* message) {
+    SetColor(BLACK);
+    ClearDevice();
+    SetColor(WHITE);
+    
+    // Draw X at top center
+    DrawX(54, 8);
+    
+    // Draw message below X
+    uint8_t width = GetStringWidth(message);
+    int16_t xPos = (DISP_HOR_RESOLUTION - width) / 2;
+    DrawString(xPos, 30, message);
+}
+
+// Show per-segment timing analysis
+// segmentMatches: array indicating which segments match (1=match, 0=mismatch)
+// totalSegments: total number of segments (should be 4 for 5-button pattern)
+void ShowTimingAnalysis(uint8_t* segmentMatches, uint8_t totalSegments) {
+    SetColor(BLACK);
+    ClearDevice();
+    SetColor(WHITE);
+    
+    // Count matched segments
+    uint8_t matchedCount = 0;
+    for (uint8_t i = 0; i < totalSegments; i++) {
+        if (segmentMatches[i]) {
+            matchedCount++;
+        }
+    }
+    
+    // Display header
+    DrawString(20, 4, "TIMING ANALYSIS:");
+    
+    // Display segment-by-segment results
+    // Show each segment with ✓ or ✗
+    // Adjusted spacing to prevent collision with summary
+    for (uint8_t i = 0; i < totalSegments && i < 4; i++) {
+        int16_t yPos = 16 + i * 11;  // Reduced spacing from 12 to 11, start at 16
+        char segmentText[15];
+        sprintf(segmentText, "SEG %d:", i + 1);
+        DrawString(8, yPos, segmentText);
+        
+        // Draw checkmark or X based on match
+        if (segmentMatches[i]) {
+            DrawCheckmark(50, yPos);
+        } else {
+            DrawX(50, yPos);
+        }
+    }
+    
+    // Display summary - moved down to avoid collision
+    char summary[20];
+    sprintf(summary, "%d/%d MATCH", matchedCount, totalSegments);
+    uint8_t width = GetStringWidth(summary);
+    int16_t xPos = (DISP_HOR_RESOLUTION - width) / 2;
+    DrawString(xPos, 58, summary);  // Moved from 56 to 58 for better spacing
 }
 
 // ==================== TIMER DELAY ====================
@@ -307,66 +458,63 @@ void DisplayTwoLines(const char* line1, const char* line2) {
     DrawString(x2, 40, line2);
 }
 
-// Draw main menu with a rectangular highlight around the selected option
-// selectedIndex: 0 = REGISTER, 1 = LOGIN, 2 = DELETE, 3 = LIST
-void DrawMainMenu(uint8_t selectedIndex) {
+// Draw main menu with two side-by-side options
+// screenIndex: 0 = Screen 1 (REGISTER | LOGIN), 1 = Screen 2 (DELETE | LIST)
+// selectedIndex: 0 = Left option, 1 = Right option
+void DrawMainMenu(uint8_t screenIndex, uint8_t selectedIndex) {
     SetColor(BLACK);
     ClearDevice();
     SetColor(WHITE);
 
-    const char* regText = "REGISTER";
-    const char* loginText = "LOGIN";
-    const char* deleteText = "DELETE";
-    const char* listText = "LIST";
+    const char* leftText;
+    const char* rightText;
+    
+    if (screenIndex == 0) {
+        // Screen 1: REGISTER | LOGIN
+        leftText = "REGISTER";
+        rightText = "LOGIN";
+    } else {
+        // Screen 2: DELETE | LIST
+        leftText = "DELETE";
+        rightText = "LIST";
+    }
 
-    // Y positions for the four options (adjusted spacing to fit all 4 items)
-    const int16_t yReg = 6;
-    const int16_t yLogin = 22;
-    const int16_t yDelete = 38;
-    const int16_t yList = 54;
-
-    // Draw text centered
-    uint8_t widthReg = GetStringWidth(regText);
-    int16_t xReg = (DISP_HOR_RESOLUTION - widthReg) / 2;
-    DrawString(xReg, yReg, regText);
-
-    uint8_t widthLogin = GetStringWidth(loginText);
-    int16_t xLogin = (DISP_HOR_RESOLUTION - widthLogin) / 2;
-    DrawString(xLogin, yLogin, loginText);
-
-    uint8_t widthDelete = GetStringWidth(deleteText);
-    int16_t xDelete = (DISP_HOR_RESOLUTION - widthDelete) / 2;
-    DrawString(xDelete, yDelete, deleteText);
-
-    uint8_t widthList = GetStringWidth(listText);
-    int16_t xList = (DISP_HOR_RESOLUTION - widthList) / 2;
-    DrawString(xList, yList, listText);
+    // Calculate positions for side-by-side layout
+    // Screen is 128 pixels wide, 64 pixels tall
+    const int16_t yCenter = 32;        // Vertical center of screen
+    const int16_t xLeftCenter = 32;     // Center of left half (128/4)
+    const int16_t xRightCenter = 96;    // Center of right half (128*3/4)
+    
+    // Draw left option (centered in left half)
+    uint8_t widthLeft = GetStringWidth(leftText);
+    int16_t xLeft = xLeftCenter - widthLeft / 2;
+    DrawString(xLeft, yCenter, leftText);
+    
+    // Draw right option (centered in right half)
+    uint8_t widthRight = GetStringWidth(rightText);
+    int16_t xRight = xRightCenter - widthRight / 2;
+    DrawString(xRight, yCenter, rightText);
+    
+    // Draw vertical separator line in the middle
+    DrawLine(64, 20, 64, 44);  // Vertical line at screen center
 
     // Draw highlight rectangle around the selected option
-    const int8_t paddingX = 4;
-    const int8_t paddingY = 2;  // Reduced to prevent overlap with menu items below
+    const int8_t paddingX = 6;
+    const int8_t paddingY = 6;
     int16_t rectX, rectY, rectW, rectH;
-
+    
     if (selectedIndex == 0) {
-        rectX = xReg - paddingX;
-        rectY = yReg - paddingY;
-        rectW = widthReg + 2 * paddingX;
-        rectH = 12 + 2 * paddingY;  // Approximate text height
-    } else if (selectedIndex == 1) {
-        rectX = xLogin - paddingX;
-        rectY = yLogin - paddingY;
-        rectW = widthLogin + 2 * paddingX;
-        rectH = 12 + 2 * paddingY;  // Approximate text height
-    } else if (selectedIndex == 2) {
-        rectX = xDelete - paddingX;
-        rectY = yDelete - paddingY;
-        rectW = widthDelete + 2 * paddingX;
-        rectH = 12 + 2 * paddingY;  // Approximate text height
-    } else {  // selectedIndex == 3 (LIST)
-        rectX = xList - paddingX;
-        rectY = yList - paddingY;
-        rectW = widthList + 2 * paddingX;
-        rectH = 12 + 2 * paddingY;  // Approximate text height
+        // Left option selected
+        rectX = xLeft - paddingX;
+        rectY = yCenter - paddingY;
+        rectW = widthLeft + 2 * paddingX;
+        rectH = 12 + 2 * paddingY;
+    } else {
+        // Right option selected
+        rectX = xRight - paddingX;
+        rectY = yCenter - paddingY;
+        rectW = widthRight + 2 * paddingX;
+        rectH = 12 + 2 * paddingY;
     }
 
     // Draw rectangle outline using four lines
@@ -737,31 +885,52 @@ int main(void) {
     
     // Main application loop
     while(1) { 
-        // Main menu with navigable highlight box:
+        // Main menu with two screens, side-by-side options:
+        // Screen 0: REGISTER (left) | LOGIN (right)
+        // Screen 1: DELETE (left) | LIST (right)
         // Button mapping (index from WaitForButton):
-        //   0 = UP, 2 = DOWN, 4 = CENTER (select)
-        uint8_t selectedIndex = 0;   // 0 = REGISTER, 1 = LOGIN, 2 = DELETE, 3 = LIST
+        //   0 = UP (go to screen 0), 2 = DOWN (go to screen 1), 
+        //   3 = LEFT (select left option), 1 = RIGHT (select right option), 4 = CENTER (confirm selection)
+        uint8_t screenIndex = 0;      // 0 = Screen 1 (REGISTER|LOGIN), 1 = Screen 2 (DELETE|LIST)
+        uint8_t selectedIndex = 0;    // 0 = Left option, 1 = Right option
         uint8_t inMenu = 1;
 
         while (inMenu) {
-            DrawMainMenu(selectedIndex);
+            DrawMainMenu(screenIndex, selectedIndex);
             uint8_t btn = WaitForButton();
 
-            if (btn == 0) {          // UP
-                if (selectedIndex > 0) {
-                    selectedIndex--;
-                }
-            } else if (btn == 2) {   // DOWN
-                if (selectedIndex < 3) {
-                    selectedIndex++;
-                }
-            } else if (btn == 4) {   // CENTER = select
+            if (btn == 0) {          // UP (button 1) - go to screen 0
+                screenIndex = 0;
+                selectedIndex = 0;   // Reset to left option
+                // Redraw immediately to show screen change
+                DrawMainMenu(screenIndex, selectedIndex);
+                delay(100);  // Small delay to ensure screen update is visible
+            } else if (btn == 2) {   // DOWN (button 3) - go to screen 1
+                screenIndex = 1;
+                selectedIndex = 0;   // Reset to left option
+                // Redraw immediately to show screen change
+                DrawMainMenu(screenIndex, selectedIndex);
+                delay(100);  // Small delay to ensure screen update is visible
+            } else if (btn == 3) {   // LEFT (button 4) - select left option
+                selectedIndex = 0;
+            } else if (btn == 1) {   // RIGHT (button 2) - select right option
+                selectedIndex = 1;
+            } else if (btn == 4) {   // CENTER (button 5) = confirm selection
                 inMenu = 0;
             }
-            // Other buttons (1=RIGHT, 3=LEFT) are ignored in menu
         }
 
-        if (selectedIndex == 0) {  // REGISTER selected
+        // Determine which option was selected based on screen and position
+        uint8_t finalSelection;
+        if (screenIndex == 0) {
+            // Screen 0: REGISTER (0) or LOGIN (1)
+            finalSelection = selectedIndex;
+        } else {
+            // Screen 1: DELETE (2) or LIST (3)
+            finalSelection = selectedIndex + 2;
+        }
+
+        if (finalSelection == 0) {  // REGISTER selected
             // Registration flow
             ShowMessage("REGISTER MENU", 1);
             ShowMessage("LOADING...", 2);
@@ -806,17 +975,17 @@ int main(void) {
             if (RegisterUser(userId, pattern, timing)) {
                 // Success: registration -> GREEN blink
                 BlinkRGB(0, 255, 0, 3, 200, 200);
-                DisplayTwoLines("REGISTRATION", "SUCCESSFUL!");
+                ShowSuccess("REGISTRATION SUCCESS");
                 delay(2000);
             } else {
                 // Failure: registration -> RED blink
                 BlinkRGB(255, 0, 0, 3, 200, 200);
-                DisplayTwoLines("REGISTRATION", "FAILED!");
+                ShowError("REGISTRATION FAILED");
                 delay(2000);
             }
             ShowMessage("REDIRECTING...", 1);
             
-        } else if (selectedIndex == 1) {  // LOGIN selected
+        } else if (finalSelection == 1) {  // LOGIN selected
             // Login flow
             ShowMessage("LOGIN MENU", 1);
             ShowMessage("LOADING...", 2);
@@ -831,10 +1000,10 @@ int main(void) {
             // Check if user exists
             int8_t userIndex = FindUser(userId);
             if (userIndex == -1) {
-                ShowMessage("CHECKING...", 1);
+                ShowLoadingAnimation("CHECKING", 1000);
                 // Failure: invalid user ID -> RED blink
                 BlinkRGB(255, 0, 0, 3, 200, 200);
-                DisplayTwoLines("INVALID", "USER ID!");
+                ShowError("INVALID USER ID");
                 delay(3000);
                 ShowMessage("REDIRECTING...", 1);
                 continue;  // Back to menu
@@ -842,10 +1011,10 @@ int main(void) {
             
             // Check if account is locked (3 failed attempts)
             if (userDatabase[userIndex].failedAttempts >= 3) {
-                ShowMessage("CHECKING...", 1);
+                ShowLoadingAnimation("CHECKING", 1000);
                 // Failure: account already locked -> RED blink
                 BlinkRGB(255, 0, 0, 3, 200, 200);
-                DisplayTwoLines("ACCOUNT", "LOCKED!");
+                ShowError("ACCOUNT LOCKED");
                 delay(3000);
                 ShowMessage("REDIRECTING...", 1);
                 continue;  // Back to menu - don't allow login
@@ -861,42 +1030,78 @@ int main(void) {
             CollectPattern(pattern, timing);
             
             // Validate credentials
-            ShowMessage("CHECKING...", 2);
+            ShowLoadingAnimation("CHECKING", 2000);
             uint8_t timingWarning = 0;
-            if (ValidateLogin(userId, pattern, timing, &timingWarning)) {
+            uint8_t segmentMatches[PATTERN_LENGTH - 1];  // Array to store segment match results
+            if (ValidateLogin(userId, pattern, timing, &timingWarning, segmentMatches)) {
                 // Login successful - reset failed attempts and mark as logged in
                 userDatabase[userIndex].failedAttempts = 0;
                 userDatabase[userIndex].isLoggedIn = 1;
                 
-                // Check if timing warning should be shown
+                // Always show timing analysis after successful login
+                ShowTimingAnalysis(segmentMatches, PATTERN_LENGTH - 1);
+                delay(5000);
+                
+                // If timing warning exists, show additional message
                 if (timingWarning) {
-                    // Show timing warning but still allow login
-                    DisplayTwoLines("TIMING WARNING", "");
+                    DisplayTwoLines("TIMING WARNING", "BUT LOGIN OK");
                     delay(2000);
                 }
                 
                 // Success: login -> GREEN blink
                 BlinkRGB(0, 255, 0, 3, 200, 200);
-                DisplayTwoLines("LOGIN SUCCESS", "");
+                ShowSuccess("LOGIN SUCCESS");
                 delay(2000);
             } else {
-                // Login failed - increment failed attempts
+                // Login failed - show timing analysis if pattern was correct but timing failed
+                // Calculate segments for display to show why login failed
+                uint8_t failedSegments[PATTERN_LENGTH - 1];
+                uint8_t segmentsMatched = 0;
+                
+                for (uint8_t i = 0; i < PATTERN_LENGTH - 1; i++) {
+                    uint16_t stored = userDatabase[userIndex].timing[i];
+                    uint16_t input = timing[i];
+                    if (stored == 0 || input == 0) {
+                        failedSegments[i] = 0;
+                    } else {
+                        uint16_t diff = (stored > input) ? (stored - input) : (input - stored);
+                        uint32_t diffPercent = (uint32_t)diff * 100 / stored;
+                        if (diffPercent <= 40) {
+                            failedSegments[i] = 1;
+                            segmentsMatched++;
+                        } else {
+                            failedSegments[i] = 0;
+                        }
+                    }
+                }
+                
+                // Show timing analysis to explain failure
+                ShowTimingAnalysis(failedSegments, PATTERN_LENGTH - 1);
+                delay(3000);
+                
+                // Show failure reason
+                if (segmentsMatched < 2) {
+                    DisplayTwoLines("TIMING FAILED", "NEED 2/4 MATCH");
+                } else {
+                    DisplayTwoLines("LOGIN FAILED", "");
+                }
+                delay(2000);
+                
+                // Increment failed attempts
                 userDatabase[userIndex].failedAttempts++;
                 
                 // Check if account should be locked now
                 if (userDatabase[userIndex].failedAttempts >= 3) {
                     // Failure: account just locked -> RED blink
                     BlinkRGB(255, 0, 0, 3, 200, 200);
-                    DisplayTwoLines("ACCOUNT", "LOCKED!");
+                    ShowError("ACCOUNT LOCKED");
                     delay(3000);
                 } else {
                     // Show remaining attempts
-                    // Failure: wrong pattern but attempts left -> RED blink
+                    // Failure: wrong pattern/timing but attempts left -> RED blink
                     BlinkRGB(255, 0, 0, 3, 200, 200);
                     char msg[30];
                     uint8_t remaining = 3 - userDatabase[userIndex].failedAttempts;
-                    DisplayTwoLines("WRONG PATTERN!", "");
-                    delay(3000);
                     sprintf(msg, "%u ATTEMPTS LEFT", remaining);
                     DisplayCentered(msg);
                     delay(3000);
@@ -904,7 +1109,7 @@ int main(void) {
             }
             ShowMessage("REDIRECTING...", 1);
             
-        } else if (selectedIndex == 2) {  // DELETE selected
+        } else if (finalSelection == 2) {  // DELETE selected
             // Delete user flow
             ShowMessage("DELETE MENU", 1);
             ShowMessage("LOADING...", 2);
@@ -927,10 +1132,10 @@ int main(void) {
             // Check if user exists
             int8_t userIndex = FindUser(userId);
             if (userIndex == -1) {
-                ShowMessage("CHECKING...", 1);
+                ShowLoadingAnimation("CHECKING", 1000);
                 // Failure: invalid user ID -> RED blink
                 BlinkRGB(255, 0, 0, 3, 200, 200);
-                DisplayTwoLines("INVALID", "USER ID!");
+                ShowError("INVALID USER ID");
                 delay(3000);
                 ShowMessage("REDIRECTING...", 1);
                 continue;  // Back to menu
@@ -946,13 +1151,17 @@ int main(void) {
             CollectPattern(pattern, timing);
             
             // Validate credentials
-            ShowMessage("CHECKING...", 2);
+            ShowLoadingAnimation("CHECKING", 2000);
             uint8_t timingWarning = 0;
-            if (ValidateLogin(userId, pattern, timing, &timingWarning)) {
-                // Check if timing warning should be shown
+            uint8_t segmentMatches[PATTERN_LENGTH - 1];  // Array to store segment match results
+            if (ValidateLogin(userId, pattern, timing, &timingWarning, segmentMatches)) {
+                // Always show timing analysis after successful authentication
+                ShowTimingAnalysis(segmentMatches, PATTERN_LENGTH - 1);
+                delay(5000);
+                
+                // If timing warning exists, show additional message
                 if (timingWarning) {
-                    // Show timing warning but still allow deletion
-                    DisplayTwoLines("TIMING WARNING", "");
+                    DisplayTwoLines("TIMING WARNING", "BUT AUTH OK");
                     delay(2000);
                 }
                 
@@ -968,12 +1177,12 @@ int main(void) {
                     if (DeleteUser(userId)) {
                         // Success: deletion -> GREEN blink
                         BlinkRGB(0, 255, 0, 3, 200, 200);
-                        DisplayTwoLines("USER", "DELETED!");
+                        ShowSuccess("USER DELETED");
                         delay(2000);
                     } else {
                         // Failure: deletion failed -> RED blink
                         BlinkRGB(255, 0, 0, 3, 200, 200);
-                        DisplayTwoLines("DELETE", "FAILED!");
+                        ShowError("DELETE FAILED");
                         delay(2000);
                     }
                 } else {
@@ -985,12 +1194,12 @@ int main(void) {
                 // Authentication failed - don't allow deletion
                 // Failure: wrong pattern -> RED blink
                 BlinkRGB(255, 0, 0, 3, 200, 200);
-                DisplayTwoLines("AUTH FAILED!", "");
+                ShowError("AUTH FAILED");
                 delay(3000);
             }
             ShowMessage("REDIRECTING...", 1);
             
-        } else if (selectedIndex == 3) {  // LIST selected
+        } else if (finalSelection == 3) {  // LIST selected
             // LIST submenu navigation
             ShowMessage("LIST MENU", 1);
             
