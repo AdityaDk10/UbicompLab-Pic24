@@ -96,7 +96,7 @@ A pattern-based authentication system for the **PIC24F Starter Kit 1**, featurin
 ## Credits
 
 - **Original Hardware Drivers:** kvl@eti.uni-siegen.de
-- **Authentication System:** [AdityaDk10](https://github.com/AdityaDk10)
+- **Authentication System:** [AdityaDk10](https://github.com/AdityaDk10), Gayathri Ragupathi
 
 ## License
 
