@@ -27,8 +27,9 @@ void DisplayCentered(const char* text);
 void ShowMessage(const char* text, uint8_t seconds);
 void DisplayTwoLines(const char* line1, const char* line2);
 void DrawMainMenu(uint8_t screenIndex, uint8_t selectedIndex);
-void DrawListSubMenu(uint8_t selectedIndex);
+void DrawListSubMenu(uint8_t screenIndex, uint8_t selectedIndex);
 void DisplayUserList(uint8_t filterType);
+void DisplayLockedUsersWithNavigation(void);
 
 // Input Functions
 uint8_t WaitForButton(void);
@@ -41,6 +42,10 @@ int8_t FindUser(int16_t userId);
 uint8_t RegisterUser(int16_t userId, uint8_t* pattern, uint16_t* timing);
 uint8_t ValidateLogin(int16_t userId, uint8_t* pattern, uint16_t* timing, uint8_t* timingWarningOut, uint8_t* segmentMatches);
 uint8_t DeleteUser(int16_t userId);
+uint8_t UnlockUser(int16_t userId);
+
+// Admin Functions
+uint8_t VerifyAdminPassword(void);
 
 // Pattern Display Functions
 void DrawPatternGrid(void);
@@ -62,6 +67,7 @@ void BlinkRGB(uint8_t r, uint8_t g, uint8_t b, uint8_t times, uint16_t onMs, uin
 // ==================== USER DATABASE ====================
 
 #define PATTERN_LENGTH 5  // Fixed 5-button pattern
+#define ADMIN_PASSWORD 1111  // Admin password for LIST menu access
 
 // User structure to hold credentials
 typedef struct {
@@ -235,6 +241,36 @@ uint8_t DeleteUser(int16_t userId) {
     
     userCount--;  // Decrement user count
     return 1;  // Success
+}
+
+// Unlock user by resetting failed attempts, returns 1 on success, 0 on failure
+uint8_t UnlockUser(int16_t userId) {
+    int8_t index = FindUser(userId);
+    if (index == -1) {
+        return 0;  // User not found
+    }
+    
+    // Reset failed attempts to unlock the account
+    userDatabase[index].failedAttempts = 0;
+    return 1;  // Success
+}
+
+// ==================== ADMIN FUNCTIONS ====================
+
+// Verify admin password, returns 1 if correct, 0 if incorrect
+uint8_t VerifyAdminPassword(void) {
+    DisplayTwoLines("ENTER ADMIN", "PASSWORD");
+    delay(2000);
+    
+    // Collect 4-digit password
+    int16_t enteredPassword = CollectDigits(4, "PASS");
+    
+    // Verify password
+    if (enteredPassword == ADMIN_PASSWORD) {
+        return 1;  // Password correct
+    } else {
+        return 0;  // Password incorrect
+    }
 }
 
 // ==================== PATTERN DISPLAY ====================
@@ -524,73 +560,96 @@ void DrawMainMenu(uint8_t screenIndex, uint8_t selectedIndex) {
     DrawLine(rectX + rectW, rectY, rectX + rectW, rectY + rectH); // right
 }
 
-// Draw LIST submenu with a rectangular highlight around the selected option
-// selectedIndex: 0 = REGISTERED, 1 = LOGGED IN, 2 = LOCKED, 3 = DELETED
-void DrawListSubMenu(uint8_t selectedIndex) {
+// Draw LIST submenu with two screens and better spacing
+// screenIndex: 0 = Screen 1 (REGISTERED, ACTIVE USERS, LOCKED), 1 = Screen 2 (DELETED, BACK)
+// selectedIndex: 0-2 for Screen 1, 0-1 for Screen 2
+// actualIndex: 0 = REGISTERED, 1 = ACTIVE USERS, 2 = LOCKED, 3 = DELETED, 4 = BACK
+void DrawListSubMenu(uint8_t screenIndex, uint8_t selectedIndex) {
     SetColor(BLACK);
     ClearDevice();
     SetColor(WHITE);
 
     const char* regUsersText = "REGISTERED";
-    const char* loggedInText = "LOGGED IN";
+    const char* loggedInText = "ACTIVE USERS";
     const char* lockedText = "LOCKED";
     const char* deletedText = "DELETED";
+    const char* backText = "BACK";
 
-    // Y positions for the four options (adjusted spacing to fit all 4 items)
-    const int16_t yReg = 6;
-    const int16_t yLogged = 22;
-    const int16_t yLocked = 38;
-    const int16_t yDeleted = 54;
+    // Variables for selected option position
+    int16_t xPos, yPos;
+    uint8_t textWidth;
 
-    // Draw text centered
-    uint8_t widthReg = GetStringWidth(regUsersText);
-    int16_t xReg = (DISP_HOR_RESOLUTION - widthReg) / 2;
-    DrawString(xReg, yReg, regUsersText);
+    if (screenIndex == 0) {
+        // Screen 1: REGISTERED, ACTIVE USERS, LOCKED
+        // Y positions with good spacing (centered vertically)
+        const int16_t yReg = 12;
+        const int16_t yLogged = 28;
+        const int16_t yLocked = 44;
 
-    uint8_t widthLogged = GetStringWidth(loggedInText);
-    int16_t xLogged = (DISP_HOR_RESOLUTION - widthLogged) / 2;
-    DrawString(xLogged, yLogged, loggedInText);
+        // Draw all three options
+        uint8_t widthReg = GetStringWidth(regUsersText);
+        int16_t xReg = (DISP_HOR_RESOLUTION - widthReg) / 2;
+        DrawString(xReg, yReg, regUsersText);
 
-    uint8_t widthLocked = GetStringWidth(lockedText);
-    int16_t xLocked = (DISP_HOR_RESOLUTION - widthLocked) / 2;
-    DrawString(xLocked, yLocked, lockedText);
+        uint8_t widthLogged = GetStringWidth(loggedInText);
+        int16_t xLogged = (DISP_HOR_RESOLUTION - widthLogged) / 2;
+        DrawString(xLogged, yLogged, loggedInText);
 
-    uint8_t widthDeleted = GetStringWidth(deletedText);
-    int16_t xDeleted = (DISP_HOR_RESOLUTION - widthDeleted) / 2;
-    DrawString(xDeleted, yDeleted, deletedText);
+        uint8_t widthLocked = GetStringWidth(lockedText);
+        int16_t xLocked = (DISP_HOR_RESOLUTION - widthLocked) / 2;
+        DrawString(xLocked, yLocked, lockedText);
 
-    // Draw highlight rectangle around the selected option
-    const int8_t paddingX = 4;
-    const int8_t paddingY = 2;
-    int16_t rectX, rectY, rectW, rectH;
+        // Get selected option position
+        if (selectedIndex == 0) {
+            xPos = xReg;
+            yPos = yReg;
+            textWidth = widthReg;
+        } else if (selectedIndex == 1) {
+            xPos = xLogged;
+            yPos = yLogged;
+            textWidth = widthLogged;
+        } else {  // selectedIndex == 2
+            xPos = xLocked;
+            yPos = yLocked;
+            textWidth = widthLocked;
+        }
+    } else {
+        // Screen 2: DELETED, BACK
+        // Y positions with good spacing (centered vertically)
+        const int16_t yDeleted = 20;
+        const int16_t yBack = 40;
 
-    if (selectedIndex == 0) {
-        rectX = xReg - paddingX;
-        rectY = yReg - paddingY;
-        rectW = widthReg + 2 * paddingX;
-        rectH = 12 + 2 * paddingY;
-    } else if (selectedIndex == 1) {
-        rectX = xLogged - paddingX;
-        rectY = yLogged - paddingY;
-        rectW = widthLogged + 2 * paddingX;
-        rectH = 12 + 2 * paddingY;
-    } else if (selectedIndex == 2) {
-        rectX = xLocked - paddingX;
-        rectY = yLocked - paddingY;
-        rectW = widthLocked + 2 * paddingX;
-        rectH = 12 + 2 * paddingY;
-    } else {  // selectedIndex == 3 (DELETED)
-        rectX = xDeleted - paddingX;
-        rectY = yDeleted - paddingY;
-        rectW = widthDeleted + 2 * paddingX;
-        rectH = 12 + 2 * paddingY;
+        // Draw both options
+        uint8_t widthDeleted = GetStringWidth(deletedText);
+        int16_t xDeleted = (DISP_HOR_RESOLUTION - widthDeleted) / 2;
+        DrawString(xDeleted, yDeleted, deletedText);
+
+        uint8_t widthBack = GetStringWidth(backText);
+        int16_t xBack = (DISP_HOR_RESOLUTION - widthBack) / 2;
+        DrawString(xBack, yBack, backText);
+
+        // Get selected option position
+        if (selectedIndex == 0) {
+            xPos = xDeleted;
+            yPos = yDeleted;
+            textWidth = widthDeleted;
+        } else {  // selectedIndex == 1 (BACK)
+            xPos = xBack;
+            yPos = yBack;
+            textWidth = widthBack;
+        }
     }
 
-    // Draw rectangle outline using four lines
-    DrawLine(rectX, rectY, rectX + rectW, rectY);               // top
-    DrawLine(rectX, rectY + rectH, rectX + rectW, rectY + rectH); // bottom
-    DrawLine(rectX, rectY, rectX, rectY + rectH);               // left
-    DrawLine(rectX + rectW, rectY, rectX + rectW, rectY + rectH); // right
+    // Draw underline and arrow indicator for selected option
+    // Draw arrow on the left side (">" symbol)
+    const int16_t arrowX = 8;
+    DrawString(arrowX, yPos, ">");
+    
+    // Draw underline below the selected text
+    const int16_t underlineY = yPos + 12;  // Below the text
+    const int16_t underlineStartX = xPos;
+    const int16_t underlineEndX = xPos + textWidth;
+    DrawLine(underlineStartX, underlineY, underlineEndX, underlineY);
 }
 
 // Display list of users based on filter type
@@ -605,7 +664,7 @@ void DisplayUserList(uint8_t filterType) {
     if (filterType == 0) {
         header = "REGISTERED:";
     } else if (filterType == 1) {
-        header = "LOGGED IN:";
+        header = "ACTIVE USERS:";
     } else if (filterType == 2) {
         header = "LOCKED:";
     } else {
@@ -646,22 +705,189 @@ void DisplayUserList(uint8_t filterType) {
         }
     }
     
-    // Handle special cases
+    // Handle special cases - show appropriate messages when no users found
     if (filterType == 3) {
         // Deleted users are removed from database
-        DrawString(8, 18, "NOT TRACKED");
-        DrawString(8, 30, "(REMOVED FROM");
-        DrawString(8, 42, "DATABASE)");
+        if (shownCount == 0 && displayCount == 0) {
+            DrawString(8, 18, "THERE ARE NO");
+            DrawString(8, 30, "USERS RECENTLY");
+            DrawString(8, 42, "DELETED");
+        } else {
+            DrawString(8, 18, "NOT TRACKED");
+            DrawString(8, 30, "(REMOVED FROM");
+            DrawString(8, 42, "DATABASE)");
+        }
     } else if (shownCount == 0 && displayCount == 0) {
-        // No users found for this filter
-        DrawString(8, 18, "NONE");
+        // No users found for this filter - show specific message
+        if (filterType == 0) {
+            // REGISTERED users
+            DrawString(8, 18, "NO USERS ARE");
+            DrawString(8, 30, "CURRENTLY");
+            DrawString(8, 42, "REGISTERED");
+        } else if (filterType == 1) {
+            // ACTIVE USERS
+            DrawString(8, 18, "NO USERS ARE");
+            DrawString(8, 30, "CURRENTLY");
+            DrawString(8, 42, "ACTIVE");
+        } else if (filterType == 2) {
+            // LOCKED users
+            DrawString(8, 18, "NO USERS ARE");
+            DrawString(8, 30, "CURRENTLY");
+            DrawString(8, 42, "LOCKED");
+        }
     }
     
-    // Wait for button press to return
-    delay(2000);
-    WaitForButton();
+    // For LOCKED users, use interactive navigation
+    if (filterType == 2 && shownCount > 0) {
+        // Use interactive navigation for locked users
+        DisplayLockedUsersWithNavigation();
+    } else {
+        // For other filter types, just wait for button to return
+        delay(2000);
+        WaitForButton();
+    }
 }
 
+// Display locked users with navigation and unlock option
+void DisplayLockedUsersWithNavigation(void) {
+    // First, collect all locked user IDs into an array
+    int16_t lockedUserIds[10];
+    uint8_t lockedCount = 0;
+    
+    for (uint8_t i = 0; i < 10; i++) {
+        if (userDatabase[i].isActive && userDatabase[i].failedAttempts >= 3) {
+            lockedUserIds[lockedCount] = userDatabase[i].userId;
+            lockedCount++;
+        }
+    }
+    
+    if (lockedCount == 0) {
+        // No locked users - should not reach here, but handle it
+        DisplayTwoLines("NO USERS ARE", "CURRENTLY LOCKED");
+        delay(2000);
+        WaitForButton();
+        return;
+    }
+    
+    // Navigation variables
+    uint8_t selectedIndex = 0;  // Currently selected user in the list
+    uint8_t inNavigation = 1;
+    
+    while (inNavigation) {
+        SetColor(BLACK);
+        ClearDevice();
+        SetColor(WHITE);
+        
+        // Draw header
+        DrawString(40, 4, "LOCKED:");
+        
+        // Display up to 3 users at a time (with scrolling if more than 3) to leave space for instruction
+        uint8_t startIndex = 0;
+        if (selectedIndex >= 3) {
+            startIndex = selectedIndex - 2;  // Show selected and 2 above
+        }
+        if (startIndex + 3 > lockedCount) {
+            startIndex = (lockedCount >= 3) ? (lockedCount - 3) : 0;
+        }
+        
+        uint8_t displayCount = 0;
+        // Limit to 3 users to leave space for instruction
+        uint8_t maxDisplay = (lockedCount > 3) ? 3 : lockedCount;
+        for (uint8_t i = startIndex; i < lockedCount && displayCount < maxDisplay; i++) {
+            char userLine[20];
+            sprintf(userLine, "ID: %02d", lockedUserIds[i]);
+            
+            int16_t yPos = 16 + displayCount * 12;
+            DrawString(8, yPos, userLine);
+            
+            // Highlight selected user with arrow and underline
+            if (i == selectedIndex) {
+                // Draw arrow on left
+                DrawString(0, yPos, ">");
+                // Draw underline
+                uint8_t textWidth = GetStringWidth(userLine);
+                DrawLine(8, yPos + 12, 8 + textWidth, yPos + 12);
+            }
+            
+            displayCount++;
+        }
+        
+        // Show instruction at bottom - centered and more visible
+        // Draw a separator line above instruction
+        DrawLine(0, 50, DISP_HOR_RESOLUTION, 50);
+        const char* instructionText = "CENTER=UNLOCK";
+        uint8_t instWidth = GetStringWidth(instructionText);
+        int16_t instX = (DISP_HOR_RESOLUTION - instWidth) / 2;
+        DrawString(instX, 56, instructionText);
+        
+        // Wait for button input
+        uint8_t btn = WaitForButton();
+        
+        if (btn == 0) {          // UP
+            if (selectedIndex > 0) {
+                selectedIndex--;
+            } else {
+                // Wrap to bottom
+                selectedIndex = lockedCount - 1;
+            }
+        } else if (btn == 2) {   // DOWN
+            if (selectedIndex < lockedCount - 1) {
+                selectedIndex++;
+            } else {
+                // Wrap to top
+                selectedIndex = 0;
+            }
+        } else if (btn == 4) {   // CENTER = unlock selected user
+            // Confirm unlock
+            int16_t userIdToUnlock = lockedUserIds[selectedIndex];
+            
+            // Show confirmation
+            char confirmMsg[30];
+            sprintf(confirmMsg, "UNLOCK ID %02d?", userIdToUnlock);
+            DisplayTwoLines(confirmMsg, "CENTER=YES");
+            delay(2000);
+            
+            // Wait for confirmation
+            uint8_t confirmBtn = WaitForButton();
+            if (confirmBtn == 4) {  // CENTER = confirm
+                // Unlock the user
+                if (UnlockUser(userIdToUnlock)) {
+                    ShowLoadingAnimation("UNLOCKING", 1000);
+                    BlinkRGB(0, 255, 0, 3, 200, 200);
+                    ShowSuccess("USER UNLOCKED");
+                    delay(2000);
+                    
+                    // Remove unlocked user from list
+                    // Shift array to remove unlocked user
+                    for (uint8_t i = selectedIndex; i < lockedCount - 1; i++) {
+                        lockedUserIds[i] = lockedUserIds[i + 1];
+                    }
+                    lockedCount--;
+                    
+                    // Adjust selected index if needed
+                    if (selectedIndex >= lockedCount && lockedCount > 0) {
+                        selectedIndex = lockedCount - 1;
+                    }
+                    
+                    // If no more locked users, exit
+                    if (lockedCount == 0) {
+                        inNavigation = 0;
+                        DisplayTwoLines("ALL USERS", "UNLOCKED");
+                        delay(2000);
+                    }
+                } else {
+                    BlinkRGB(255, 0, 0, 3, 200, 200);
+                    ShowError("UNLOCK FAILED");
+                    delay(2000);
+                }
+            }
+            // If not confirmed, continue navigation
+        } else if (btn == 3) {   // LEFT = back to LIST menu
+            inNavigation = 0;
+        }
+        // Other buttons (1=RIGHT) are ignored
+    }
+}
 
 // ==================== PATTERN INPUT ====================
 
@@ -1053,39 +1279,47 @@ int main(void) {
                 ShowSuccess("LOGIN SUCCESS");
                 delay(2000);
             } else {
-                // Login failed - show timing analysis if pattern was correct but timing failed
-                // Calculate segments for display to show why login failed
-                uint8_t failedSegments[PATTERN_LENGTH - 1];
-                uint8_t segmentsMatched = 0;
+                // Login failed - check if pattern matches first
+                uint8_t patternMatches = ComparePatterns(userDatabase[userIndex].pattern, pattern);
                 
-                for (uint8_t i = 0; i < PATTERN_LENGTH - 1; i++) {
-                    uint16_t stored = userDatabase[userIndex].timing[i];
-                    uint16_t input = timing[i];
-                    if (stored == 0 || input == 0) {
-                        failedSegments[i] = 0;
-                    } else {
-                        uint16_t diff = (stored > input) ? (stored - input) : (input - stored);
-                        uint32_t diffPercent = (uint32_t)diff * 100 / stored;
-                        if (diffPercent <= 40) {
-                            failedSegments[i] = 1;
-                            segmentsMatched++;
-                        } else {
+                if (patternMatches) {
+                    // Pattern matches but timing failed - show timing analysis
+                    uint8_t failedSegments[PATTERN_LENGTH - 1];
+                    uint8_t segmentsMatched = 0;
+                    
+                    for (uint8_t i = 0; i < PATTERN_LENGTH - 1; i++) {
+                        uint16_t stored = userDatabase[userIndex].timing[i];
+                        uint16_t input = timing[i];
+                        if (stored == 0 || input == 0) {
                             failedSegments[i] = 0;
+                        } else {
+                            uint16_t diff = (stored > input) ? (stored - input) : (input - stored);
+                            uint32_t diffPercent = (uint32_t)diff * 100 / stored;
+                            if (diffPercent <= 40) {
+                                failedSegments[i] = 1;
+                                segmentsMatched++;
+                            } else {
+                                failedSegments[i] = 0;
+                            }
                         }
                     }
-                }
-                
-                // Show timing analysis to explain failure
-                ShowTimingAnalysis(failedSegments, PATTERN_LENGTH - 1);
-                delay(3000);
-                
-                // Show failure reason
-                if (segmentsMatched < 2) {
-                    DisplayTwoLines("TIMING FAILED", "NEED 2/4 MATCH");
+                    
+                    // Show timing analysis to explain failure
+                    ShowTimingAnalysis(failedSegments, PATTERN_LENGTH - 1);
+                    delay(3000);
+                    
+                    // Show failure reason
+                    if (segmentsMatched < 2) {
+                        DisplayTwoLines("TIMING FAILED", "NEED 2/4 MATCH");
+                    } else {
+                        DisplayTwoLines("LOGIN FAILED", "");
+                    }
+                    delay(2000);
                 } else {
-                    DisplayTwoLines("LOGIN FAILED", "");
+                    // Pattern doesn't match - don't show timing analysis
+                    DisplayTwoLines("PATTERN", "INCORRECT");
+                    delay(2000);
                 }
-                delay(2000);
                 
                 // Increment failed attempts
                 userDatabase[userIndex].failedAttempts++;
@@ -1200,50 +1434,108 @@ int main(void) {
             ShowMessage("REDIRECTING...", 1);
             
         } else if (finalSelection == 3) {  // LIST selected
-            // LIST submenu navigation
+            // LIST submenu navigation - requires admin password
             ShowMessage("LIST MENU", 1);
             
-            // Check if database is empty
-            if (userCount == 0) {
-                DisplayTwoLines("NO USERS", "REGISTERED!");
+            // Request admin password
+            if (!VerifyAdminPassword()) {
+                // Password incorrect - show error and return to main menu
+                ShowLoadingAnimation("CHECKING", 1000);
+                BlinkRGB(255, 0, 0, 3, 200, 200);
+                ShowError("ACCESS DENIED");
                 delay(3000);
                 ShowMessage("REDIRECTING...", 1);
-                continue;  // Back to menu
+                continue;  // Back to main menu
             }
             
-            // LIST submenu with navigable highlight box:
+            // Password correct - show success and proceed
+            ShowLoadingAnimation("CHECKING", 1000);
+            BlinkRGB(0, 255, 0, 2, 200, 200);
+            ShowSuccess("ACCESS GRANTED");
+            delay(1500);
+            
+            // LIST submenu with two screens and navigable highlight box (always accessible, even with no users):
+            // Screen 0: REGISTERED, ACTIVE USERS, LOCKED
+            // Screen 1: DELETED, BACK
             // Button mapping (index from WaitForButton):
-            //   0 = UP, 2 = DOWN, 4 = CENTER (select), 3 = LEFT (back)
-            uint8_t listSubIndex = 0;   // 0 = REGISTERED, 1 = LOGGED IN, 2 = LOCKED, 3 = DELETED
+            //   0 = UP (navigate up/switch screen), 2 = DOWN (navigate down/switch screen), 
+            //   4 = CENTER (select), 3 = LEFT (back to main menu)
+            uint8_t listScreenIndex = 0;      // 0 = Screen 1, 1 = Screen 2
+            uint8_t listSelectedIndex = 0;    // 0-2 for Screen 1, 0-1 for Screen 2
             uint8_t inListSubMenu = 1;
             
             while (inListSubMenu) {
-                DrawListSubMenu(listSubIndex);
+                DrawListSubMenu(listScreenIndex, listSelectedIndex);
                 uint8_t btn = WaitForButton();
                 
                 if (btn == 0) {          // UP
-                    if (listSubIndex > 0) {
-                        listSubIndex--;
+                    if (listScreenIndex == 0) {
+                        // On Screen 1, navigate up within screen
+                        if (listSelectedIndex > 0) {
+                            listSelectedIndex--;
+                        } else {
+                            // At top of Screen 1, wrap to Screen 2
+                            listScreenIndex = 1;
+                            listSelectedIndex = 1;  // Go to BACK option
+                        }
+                    } else {
+                        // On Screen 2, navigate up within screen
+                        if (listSelectedIndex > 0) {
+                            listSelectedIndex--;
+                        } else {
+                            // At top of Screen 2, go to Screen 1
+                            listScreenIndex = 0;
+                            listSelectedIndex = 2;  // Go to LOCKED option
+                        }
                     }
                 } else if (btn == 2) {   // DOWN
-                    if (listSubIndex < 3) {
-                        listSubIndex++;
+                    if (listScreenIndex == 0) {
+                        // On Screen 1, navigate down within screen
+                        if (listSelectedIndex < 2) {
+                            listSelectedIndex++;
+                        } else {
+                            // At bottom of Screen 1, go to Screen 2
+                            listScreenIndex = 1;
+                            listSelectedIndex = 0;  // Go to DELETED option
+                        }
+                    } else {
+                        // On Screen 2, navigate down within screen
+                        if (listSelectedIndex < 1) {
+                            listSelectedIndex++;
+                        } else {
+                            // At bottom of Screen 2, wrap to Screen 1
+                            listScreenIndex = 0;
+                            listSelectedIndex = 0;  // Go to REGISTERED option
+                        }
                     }
                 } else if (btn == 4) {   // CENTER = select
-                    inListSubMenu = 0;
+                    // Convert screen + selected index to actual option index
+                    uint8_t actualIndex;
+                    if (listScreenIndex == 0) {
+                        actualIndex = listSelectedIndex;  // 0=REGISTERED, 1=ACTIVE USERS, 2=LOCKED
+                    } else {
+                        actualIndex = listSelectedIndex + 3;  // 3=DELETED, 4=BACK
+                    }
+                    
+                    // If BACK is selected, go back to main menu
+                    if (actualIndex == 4) {
+                        inListSubMenu = 0;
+                    } else {
+                        // Display the list - after button press, return to LIST submenu
+                        DisplayUserList(actualIndex);
+                        // After displaying list, continue in LIST submenu loop (don't exit)
+                        // The loop will continue and show the LIST submenu again
+                    }
                 } else if (btn == 3) {   // LEFT = back to main menu
                     inListSubMenu = 0;
-                    listSubIndex = 255;  // Special value to indicate back
                 }
                 // Other buttons (1=RIGHT) are ignored in menu
             }
             
-            // If user selected an option (not back), display the list
-            if (listSubIndex != 255) {
-                DisplayUserList(listSubIndex);
+            // Only show redirecting message if we're actually leaving LIST menu
+            if (!inListSubMenu) {
+                ShowMessage("REDIRECTING...", 1);
             }
-            
-            ShowMessage("REDIRECTING...", 1);
     }
     }
     
