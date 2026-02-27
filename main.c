@@ -8,7 +8,8 @@
  *   - 2-digit user ID
  *   - 5-button swipe pattern password (Android-style)
  *   - Real-time pattern visualization
- *   - Multi-user support (up to 10 users)
+ *   - Multi-user support (up to 25 users)
+ *   - Flash-based persistent storage (survives power cycle)
  * 
  * Hardware: PIC24F Starter Kit 1
  * 
@@ -44,6 +45,10 @@ uint8_t ValidateLogin(int16_t userId, uint8_t* pattern, uint16_t* timing, uint8_
 uint8_t DeleteUser(int16_t userId);
 uint8_t UnlockUser(int16_t userId);
 
+// Flash Persistence Functions
+void FlashReadDatabase(void);
+void FlashWriteDatabase(void);
+
 // Admin Functions
 uint8_t VerifyAdminPassword(void);
 
@@ -68,6 +73,9 @@ void BlinkRGB(uint8_t r, uint8_t g, uint8_t b, uint8_t times, uint16_t onMs, uin
 
 #define PATTERN_LENGTH 5  // Fixed 5-button pattern
 #define ADMIN_PASSWORD 1111  // Admin password for LIST menu access
+#define MAX_USERS 25
+#define FLASH_PAGE_ADDR  0x10000UL
+#define FLASH_VALID_FLAG 0xA5A5
 
 // User structure to hold credentials
 typedef struct {
@@ -79,9 +87,12 @@ typedef struct {
     uint16_t timing[PATTERN_LENGTH - 1]; // Inter-button timing in milliseconds (4 values for 5-button pattern)
 } User;
 
-// Database to store up to 10 users
-User userDatabase[10];
+User userDatabase[MAX_USERS];
 uint8_t userCount = 0;
+
+#define DELETED_HISTORY_MAX 10
+int16_t deletedHistory[DELETED_HISTORY_MAX];
+uint8_t deletedCount = 0;
 
 // Button positions on screen (for pattern display)
 // Button order: 0=UP, 1=RIGHT, 2=DOWN, 3=LEFT, 4=CENTER
@@ -90,7 +101,7 @@ const uint8_t buttonY[5] = {12, 32, 52, 32, 32};    // Y coordinates
 
 // Initialize database (mark all slots as empty)
 void InitDatabase() {
-    for (uint8_t i = 0; i < 10; i++) {
+    for (uint8_t i = 0; i < MAX_USERS; i++) {
         userDatabase[i].userId = 0;
         userDatabase[i].isActive = 0;
         userDatabase[i].failedAttempts = 0;
@@ -103,11 +114,15 @@ void InitDatabase() {
         }
     }
     userCount = 0;
+    for (uint8_t i = 0; i < DELETED_HISTORY_MAX; i++) {
+        deletedHistory[i] = 0;
+    }
+    deletedCount = 0;
 }
 
 // Find user by ID, returns index (0-9) or -1 if not found
 int8_t FindUser(int16_t userId) {
-    for (uint8_t i = 0; i < 10; i++) {
+    for (uint8_t i = 0; i < MAX_USERS; i++) {
         if (userDatabase[i].isActive && userDatabase[i].userId == userId) {
             return i;  // Found at index i
         }
@@ -128,7 +143,7 @@ uint8_t ComparePatterns(uint8_t* pattern1, uint8_t* pattern2) {
 // Register new user, returns 1 on success, 0 on failure
 uint8_t RegisterUser(int16_t userId, uint8_t* pattern, uint16_t* timing) {
     // Check if database is full
-    if (userCount >= 10) {
+    if (userCount >= MAX_USERS) {
         return 0;  // Database full
     }
     
@@ -138,7 +153,7 @@ uint8_t RegisterUser(int16_t userId, uint8_t* pattern, uint16_t* timing) {
     }
     
     // Find first empty slot and add user
-    for (uint8_t i = 0; i < 10; i++) {
+    for (uint8_t i = 0; i < MAX_USERS; i++) {
         if (!userDatabase[i].isActive) {
             userDatabase[i].userId = userId;
             for (uint8_t j = 0; j < PATTERN_LENGTH; j++) {
@@ -227,7 +242,17 @@ uint8_t DeleteUser(int16_t userId) {
         return 0;  // User not found
     }
     
-            // Mark slot as inactive and clear data
+    // Record in deleted history (shift oldest out if full)
+    if (deletedCount < DELETED_HISTORY_MAX) {
+        deletedHistory[deletedCount] = userId;
+        deletedCount++;
+    } else {
+        for (uint8_t k = 0; k < DELETED_HISTORY_MAX - 1; k++) {
+            deletedHistory[k] = deletedHistory[k + 1];
+        }
+        deletedHistory[DELETED_HISTORY_MAX - 1] = userId;
+    }
+    
     userDatabase[index].isActive = 0;
     userDatabase[index].userId = 0;
     userDatabase[index].failedAttempts = 0;
@@ -253,6 +278,127 @@ uint8_t UnlockUser(int16_t userId) {
     // Reset failed attempts to unlock the account
     userDatabase[index].failedAttempts = 0;
     return 1;  // Success
+}
+
+// ==================== FLASH PERSISTENCE ====================
+
+// NVM unlock sequence using pure inline assembly from DS39897C Example 5-5.
+// This bypasses __builtin_write_NVM() to guarantee correct timing.
+static void NVMUnlock(void) {
+    asm volatile(
+        "disi    #5          \n\t"
+        "mov     #0x55, w0   \n\t"
+        "mov     w0, _NVMKEY \n\t"
+        "mov     #0xAA, w0   \n\t"
+        "mov     w0, _NVMKEY \n\t"
+        "bset    _NVMCON, #15\n\t"
+        "nop                 \n\t"
+        "nop"
+        : : : "w0"
+    );
+}
+
+static void FlashErasePage(uint32_t address) {
+    uint16_t offset;
+
+    TBLPAG = (uint16_t)(address >> 16);
+    offset = (uint16_t)(address & 0xFFFF);
+    __builtin_tblwtl(offset, 0x0000);
+    NVMCON = 0x4042;
+    NVMUnlock();
+    while(NVMCONbits.WR);
+    NVMCONbits.WREN = 0;
+}
+
+static void FlashWriteWord(uint32_t address, uint16_t data) {
+    uint16_t offset;
+
+    NVMCON = 0x4003;
+    TBLPAG = (uint16_t)(address >> 16);
+    offset = (uint16_t)(address & 0xFFFF);
+    __builtin_tblwtl(offset, data);
+    __builtin_tblwth(offset, 0x00);
+    NVMUnlock();
+    while(NVMCONbits.WR);
+    NVMCONbits.WREN = 0;
+}
+
+void FlashWriteDatabase(void) {
+    uint16_t i;
+    uint16_t dbWords;
+    uint16_t *src;
+    uint32_t addr;
+
+    FlashErasePage(FLASH_PAGE_ADDR);
+
+    addr = FLASH_PAGE_ADDR;
+
+    FlashWriteWord(addr, FLASH_VALID_FLAG);
+    addr += 2;
+
+    FlashWriteWord(addr, (uint16_t)userCount);
+    addr += 2;
+
+    src = (uint16_t *)userDatabase;
+    dbWords = (sizeof(userDatabase) + 1) / 2;
+    for(i = 0; i < dbWords; i++) {
+        FlashWriteWord(addr, src[i]);
+        addr += 2;
+    }
+
+    FlashWriteWord(addr, (uint16_t)deletedCount);
+    addr += 2;
+
+    src = (uint16_t *)deletedHistory;
+    for(i = 0; i < DELETED_HISTORY_MAX; i++) {
+        FlashWriteWord(addr, src[i]);
+        addr += 2;
+    }
+}
+
+void FlashReadDatabase(void) {
+    uint32_t address = FLASH_PAGE_ADDR;
+    uint16_t valid_flag;
+    uint16_t storedCount;
+    uint16_t *dest;
+    uint16_t dbWords;
+    uint16_t i;
+
+    TBLPAG = (uint16_t)(address >> 16);
+
+    valid_flag = __builtin_tblrdl((uint16_t)(address & 0xFFFF));
+    address += 2;
+
+    if(valid_flag != FLASH_VALID_FLAG) {
+        InitDatabase();
+        return;
+    }
+
+    storedCount = __builtin_tblrdl((uint16_t)(address & 0xFFFF));
+    address += 2;
+    userCount = (uint8_t)storedCount;
+
+    dest = (uint16_t *)userDatabase;
+    dbWords = (sizeof(userDatabase) + 1) / 2;
+    for(i = 0; i < dbWords; i++) {
+        dest[i] = __builtin_tblrdl((uint16_t)(address & 0xFFFF));
+        address += 2;
+    }
+
+    for(i = 0; i < MAX_USERS; i++) {
+        userDatabase[i].isLoggedIn = 0;
+    }
+
+    uint16_t storedDeleted = __builtin_tblrdl((uint16_t)(address & 0xFFFF));
+    address += 2;
+    deletedCount = (uint8_t)storedDeleted;
+    if (deletedCount > DELETED_HISTORY_MAX) deletedCount = DELETED_HISTORY_MAX;
+
+    dest = (uint16_t *)deletedHistory;
+    for(i = 0; i < DELETED_HISTORY_MAX; i++) {
+        dest[i] = __builtin_tblrdl((uint16_t)(address & 0xFFFF));
+        address += 2;
+    }
 }
 
 // ==================== ADMIN FUNCTIONS ====================
@@ -679,7 +825,7 @@ void DisplayUserList(uint8_t filterType) {
     uint8_t displayCount = 0;
     uint8_t shownCount = 0;
     
-    for (uint8_t i = 0; i < 10 && shownCount < 4; i++) {
+    for (uint8_t i = 0; i < MAX_USERS && shownCount < 4; i++) {
         uint8_t shouldDisplay = 0;
         
         if (filterType == 0) {
@@ -707,15 +853,16 @@ void DisplayUserList(uint8_t filterType) {
     
     // Handle special cases - show appropriate messages when no users found
     if (filterType == 3) {
-        // Deleted users are removed from database
-        if (shownCount == 0 && displayCount == 0) {
-            DrawString(8, 18, "THERE ARE NO");
-            DrawString(8, 30, "USERS RECENTLY");
-            DrawString(8, 42, "DELETED");
+        if (deletedCount == 0) {
+            DrawString(8, 18, "NO DELETED");
+            DrawString(8, 30, "HISTORY");
         } else {
-            DrawString(8, 18, "NOT TRACKED");
-            DrawString(8, 30, "(REMOVED FROM");
-            DrawString(8, 42, "DATABASE)");
+            uint8_t show = (deletedCount > 4) ? 4 : deletedCount;
+            for (uint8_t d = 0; d < show; d++) {
+                char delLine[20];
+                sprintf(delLine, "ID: %02d", deletedHistory[d]);
+                DrawString(8, 18 + d * 12, delLine);
+            }
         }
     } else if (shownCount == 0 && displayCount == 0) {
         // No users found for this filter - show specific message
@@ -751,10 +898,10 @@ void DisplayUserList(uint8_t filterType) {
 // Display locked users with navigation and unlock option
 void DisplayLockedUsersWithNavigation(void) {
     // First, collect all locked user IDs into an array
-    int16_t lockedUserIds[10];
+    int16_t lockedUserIds[MAX_USERS];
     uint8_t lockedCount = 0;
     
-    for (uint8_t i = 0; i < 10; i++) {
+    for (uint8_t i = 0; i < MAX_USERS; i++) {
         if (userDatabase[i].isActive && userDatabase[i].failedAttempts >= 3) {
             lockedUserIds[lockedCount] = userDatabase[i].userId;
             lockedCount++;
@@ -852,6 +999,7 @@ void DisplayLockedUsersWithNavigation(void) {
             if (confirmBtn == 4) {  // CENTER = confirm
                 // Unlock the user
                 if (UnlockUser(userIdToUnlock)) {
+                    FlashWriteDatabase();
                     ShowLoadingAnimation("UNLOCKING", 1000);
                     BlinkRGB(0, 255, 0, 3, 200, 200);
                     ShowSuccess("USER UNLOCKED");
@@ -904,18 +1052,17 @@ uint8_t IsInPattern(uint8_t* pattern, uint8_t length, uint8_t button) {
 void CollectPattern(uint8_t* pattern, uint16_t* timing) {
     uint8_t patternLen = 0;
     int16_t aggr[5] = {0, 0, 0, 0, 0};
-    uint8_t lastButton = 0xFF;  // Last button added to pattern
+    uint8_t lastButton = 0xFF;
     const int16_t THRESHOLD = 6;
     const uint16_t timeout = 10;
-    
-    uint32_t lastButtonTime = 0;  // Time when last button was added (in loop iterations)
-    uint32_t currentTime = 0;     // Current time counter (in loop iterations)
-    
-    // Initialize timing array
+
+    uint32_t lastButtonTime = 0;
+    uint32_t currentTime = 0;
+
     for (uint8_t i = 0; i < PATTERN_LENGTH - 1; i++) {
         timing[i] = 0;
     }
-    
+
     // Show initial grid
     SetColor(BLACK);
     ClearDevice();
@@ -987,10 +1134,10 @@ int16_t CollectDigits(uint8_t numDigits, const char* prompt) {
     const int16_t THRESHOLD = 6;
     const int16_t RELEASE_THRESHOLD = 2; // More strict release detection
     const uint16_t timeout = 10;
-    
+
     while (digitCount < numDigits) {
         ReadCTMU();
-        
+
         // Update aggregate values
         for (uint8_t i = 0; i < 5; i++) {
             if (buttons[i]) aggr[i]++;
@@ -998,7 +1145,7 @@ int16_t CollectDigits(uint8_t numDigits, const char* prompt) {
             if (aggr[i] < 0) aggr[i] = 0;
             if (aggr[i] > 30) aggr[i] = 30;
 }
-        
+
         // Check if all buttons are truly released (all aggregates near zero)
         uint8_t allReleased = 1;
         for (uint8_t i = 0; i < 5; i++) {
@@ -1007,12 +1154,12 @@ int16_t CollectDigits(uint8_t numDigits, const char* prompt) {
                 break;
             }
         }
-        
+
         // Reset flag when fully released
         if (allReleased && digitRegistered) {
             digitRegistered = 0;
         }
-        
+
         // Only process new digit if not already registered
         if (!digitRegistered) {
             // Find highest aggregate button
@@ -1024,24 +1171,24 @@ int16_t CollectDigits(uint8_t numDigits, const char* prompt) {
                     maxButton = i;
                 }
             }
-            
+
             // Register digit if button detected
             if (maxButton != 0xFF) {
                 uint8_t digit = maxButton + 1; // Map buttons 0-4 to digits 1-5
                 input[digitCount] = '0' + digit;
                 digitCount++;
-                
+
                 // Update display
                 sprintf(display, "%s: %s", prompt, input);
                 DisplayCentered(display);
-                
+
                 digitRegistered = 1; // Lock further input until full release
             }
         }
-        
+
         delay(timeout);
     }
-    
+
     // Wait half a second after completing input before proceeding
     delay(500);
     
@@ -1062,17 +1209,17 @@ uint8_t WaitForButton() {
     uint8_t lastDetected = 0xFF;
     const int16_t THRESHOLD = 6;
     const uint16_t timeout = 10;
-    
+
     while(1) {
         ReadCTMU();
-        
+
         for (uint8_t i = 0; i < 5; i++) {
             if (buttons[i]) aggr[i]++;
             else aggr[i]--;
             if (aggr[i] < 0) aggr[i] = 0;
             if (aggr[i] > 30) aggr[i] = 30;
         }
-        
+
         int16_t maxVal = THRESHOLD;
         uint8_t maxButton = 0xFF;
         for (uint8_t i = 0; i < 5; i++) {
@@ -1081,14 +1228,14 @@ uint8_t WaitForButton() {
                 maxButton = i;
             }
         }
-        
+
         if (maxButton != 0xFF && maxButton != lastDetected) {
             delay(200); // Debounce
             return maxButton;
         } else if (maxButton == 0xFF) {
             lastDetected = 0xFF;
         }
-        
+
         delay(timeout);
     }
 }
@@ -1103,8 +1250,8 @@ int main(void) {
     RGBTurnOnLED();
     ResetDevice();
     
-    // Initialize user database
-    InitDatabase();
+    // Load user database from Flash (first boot initializes empty database)
+    FlashReadDatabase();
     
     // Startup greeting
     ShowMessage("HELLO!", 3);
@@ -1162,7 +1309,7 @@ int main(void) {
             ShowMessage("LOADING...", 2);
             
             // Check if database is full
-            if (userCount >= 10) {
+            if (userCount >= MAX_USERS) {
                 // Failure: database full -> RED blink
                 BlinkRGB(255, 0, 0, 3, 200, 200);
                 DisplayTwoLines("DATABASE", "FULL!");
@@ -1199,6 +1346,7 @@ int main(void) {
             
             // Register the user
             if (RegisterUser(userId, pattern, timing)) {
+                FlashWriteDatabase();
                 // Success: registration -> GREEN blink
                 BlinkRGB(0, 255, 0, 3, 200, 200);
                 ShowSuccess("REGISTRATION SUCCESS");
@@ -1261,7 +1409,10 @@ int main(void) {
             uint8_t segmentMatches[PATTERN_LENGTH - 1];  // Array to store segment match results
             if (ValidateLogin(userId, pattern, timing, &timingWarning, segmentMatches)) {
                 // Login successful - reset failed attempts and mark as logged in
-                userDatabase[userIndex].failedAttempts = 0;
+                if (userDatabase[userIndex].failedAttempts > 0) {
+                    userDatabase[userIndex].failedAttempts = 0;
+                    FlashWriteDatabase();
+                }
                 userDatabase[userIndex].isLoggedIn = 1;
                 
                 // Always show timing analysis after successful login
@@ -1323,7 +1474,8 @@ int main(void) {
                 
                 // Increment failed attempts
                 userDatabase[userIndex].failedAttempts++;
-                
+                FlashWriteDatabase();
+
                 // Check if account should be locked now
                 if (userDatabase[userIndex].failedAttempts >= 3) {
                     // Failure: account just locked -> RED blink
@@ -1409,6 +1561,7 @@ int main(void) {
                 if (confirmBtn == 4) {  // CENTER = YES, confirm deletion
                     // Delete the user
                     if (DeleteUser(userId)) {
+                        FlashWriteDatabase();
                         // Success: deletion -> GREEN blink
                         BlinkRGB(0, 255, 0, 3, 200, 200);
                         ShowSuccess("USER DELETED");
