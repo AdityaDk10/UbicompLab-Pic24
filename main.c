@@ -680,30 +680,20 @@ void DrawMainMenu(uint8_t screenIndex, uint8_t selectedIndex) {
     // Draw vertical separator line in the middle
     DrawLine(64, 20, 64, 44);  // Vertical line at screen center
 
-    // Draw highlight rectangle around the selected option
-    const int8_t paddingX = 6;
-    const int8_t paddingY = 6;
-    int16_t rectX, rectY, rectW, rectH;
-    
+    // Draw underline and arrow for selected option (arrow just left of label text)
+    const int16_t underlineY = yCenter + 12;
+    uint8_t arrowW = GetStringWidth(">");
     if (selectedIndex == 0) {
-        // Left option selected
-        rectX = xLeft - paddingX;
-        rectY = yCenter - paddingY;
-        rectW = widthLeft + 2 * paddingX;
-        rectH = 12 + 2 * paddingY;
+        int16_t arrowX = xLeft - arrowW - 2;
+        if (arrowX < 0) arrowX = 0;
+        DrawString(arrowX, yCenter, ">");
+        DrawLine(xLeft, underlineY, xLeft + widthLeft, underlineY);
     } else {
-        // Right option selected
-        rectX = xRight - paddingX;
-        rectY = yCenter - paddingY;
-        rectW = widthRight + 2 * paddingX;
-        rectH = 12 + 2 * paddingY;
+        int16_t arrowX = xRight - arrowW - 2;
+        if (arrowX < 65) arrowX = 65;  // keep right of center line
+        DrawString(arrowX, yCenter, ">");
+        DrawLine(xRight, underlineY, xRight + widthRight, underlineY);
     }
-
-    // Draw rectangle outline using four lines
-    DrawLine(rectX, rectY, rectX + rectW, rectY);               // top
-    DrawLine(rectX, rectY + rectH, rectX + rectW, rectY + rectH); // bottom
-    DrawLine(rectX, rectY, rectX, rectY + rectH);               // left
-    DrawLine(rectX + rectW, rectY, rectX + rectW, rectY + rectH); // right
 }
 
 // Draw LIST submenu with two screens and better spacing
