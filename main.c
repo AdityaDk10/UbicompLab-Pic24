@@ -51,6 +51,7 @@ void FlashWriteDatabase(void);
 
 // Admin Functions
 uint8_t VerifyAdminPassword(void);
+void AdminDeleteById(void);
 
 // Pattern Display Functions
 void DrawPatternGrid(void);
@@ -419,6 +420,55 @@ uint8_t VerifyAdminPassword(void) {
     }
 }
 
+// Admin-only delete by user ID from LIST menu (no user pattern required)
+void AdminDeleteById(void) {
+    // Brief info screen
+    DisplayTwoLines("DEL USER BY", "ID");
+    delay(2000);
+
+    // Prompt for target user ID
+    DisplayTwoLines("ENTER USER", "ID");
+    delay(2000);
+
+    // Collect 2-digit ID
+    int16_t userId = CollectDigits(2, "ID");
+
+    // Check if user exists
+    int8_t userIndex = FindUser(userId);
+    if (userIndex == -1) {
+        ShowLoadingAnimation("CHECKING", 1000);
+        BlinkRGB(255, 0, 0, 3, 200, 200);
+        ShowError("INVALID USER ID");
+        delay(3000);
+        return;
+    }
+
+    // Final confirmation before delete
+    char confirmLine[20];
+    sprintf(confirmLine, "DEL ID %02d?", userId);
+    DisplayTwoLines(confirmLine, "CENTER=YES");
+    delay(2000);
+
+    uint8_t btn = WaitForButton();
+    if (btn != 4) {
+        DisplayTwoLines("CANCELLED", "");
+        delay(2000);
+        return;
+    }
+
+    // Perform delete
+    if (DeleteUser(userId)) {
+        FlashWriteDatabase();
+        BlinkRGB(0, 255, 0, 3, 200, 200);
+        ShowSuccess("USER DELETED");
+        delay(2000);
+    } else {
+        BlinkRGB(255, 0, 0, 3, 200, 200);
+        ShowError("DELETE FAILED");
+        delay(2000);
+    }
+}
+
 // ==================== PATTERN DISPLAY ====================
 
 // Draw the 5 button positions as dots on screen
@@ -697,9 +747,9 @@ void DrawMainMenu(uint8_t screenIndex, uint8_t selectedIndex) {
 }
 
 // Draw LIST submenu with two screens and better spacing
-// screenIndex: 0 = Screen 1 (REGISTERED, ACTIVE USERS, LOCKED), 1 = Screen 2 (DELETED, BACK)
-// selectedIndex: 0-2 for Screen 1, 0-1 for Screen 2
-// actualIndex: 0 = REGISTERED, 1 = ACTIVE USERS, 2 = LOCKED, 3 = DELETED, 4 = BACK
+// screenIndex: 0 = Screen 1 (REGISTERED, ACTIVE USERS, LOCKED), 1 = Screen 2 (DELETED, DEL USER, BACK)
+// selectedIndex: 0-2 for Screen 1, 0-2 for Screen 2
+// actualIndex: 0 = REGISTERED, 1 = ACTIVE USERS, 2 = LOCKED, 3 = DELETED, 4 = DEL USER, 5 = BACK
 void DrawListSubMenu(uint8_t screenIndex, uint8_t selectedIndex) {
     SetColor(BLACK);
     ClearDevice();
@@ -709,6 +759,7 @@ void DrawListSubMenu(uint8_t screenIndex, uint8_t selectedIndex) {
     const char* loggedInText = "ACTIVE USERS";
     const char* lockedText = "LOCKED";
     const char* deletedText = "DELETED";
+    const char* adminDelText = "DEL USER";
     const char* backText = "BACK";
 
     // Variables for selected option position
@@ -750,15 +801,20 @@ void DrawListSubMenu(uint8_t screenIndex, uint8_t selectedIndex) {
             textWidth = widthLocked;
         }
     } else {
-        // Screen 2: DELETED, BACK
+        // Screen 2: DELETED, DEL USER, BACK
         // Y positions with good spacing (centered vertically)
-        const int16_t yDeleted = 20;
-        const int16_t yBack = 40;
+        const int16_t yDeleted = 12;
+        const int16_t yAdminDel = 28;
+        const int16_t yBack = 44;
 
-        // Draw both options
+        // Draw all three options
         uint8_t widthDeleted = GetStringWidth(deletedText);
         int16_t xDeleted = (DISP_HOR_RESOLUTION - widthDeleted) / 2;
         DrawString(xDeleted, yDeleted, deletedText);
+
+        uint8_t widthAdminDel = GetStringWidth(adminDelText);
+        int16_t xAdminDel = (DISP_HOR_RESOLUTION - widthAdminDel) / 2;
+        DrawString(xAdminDel, yAdminDel, adminDelText);
 
         uint8_t widthBack = GetStringWidth(backText);
         int16_t xBack = (DISP_HOR_RESOLUTION - widthBack) / 2;
@@ -769,7 +825,11 @@ void DrawListSubMenu(uint8_t screenIndex, uint8_t selectedIndex) {
             xPos = xDeleted;
             yPos = yDeleted;
             textWidth = widthDeleted;
-        } else {  // selectedIndex == 1 (BACK)
+        } else if (selectedIndex == 1) {
+            xPos = xAdminDel;
+            yPos = yAdminDel;
+            textWidth = widthAdminDel;
+        } else {  // selectedIndex == 2 (BACK)
             xPos = xBack;
             yPos = yBack;
             textWidth = widthBack;
@@ -1599,12 +1659,12 @@ int main(void) {
             
             // LIST submenu with two screens and navigable highlight box (always accessible, even with no users):
             // Screen 0: REGISTERED, ACTIVE USERS, LOCKED
-            // Screen 1: DELETED, BACK
+            // Screen 1: DELETED, DEL USER, BACK
             // Button mapping (index from WaitForButton):
             //   0 = UP (navigate up/switch screen), 2 = DOWN (navigate down/switch screen), 
             //   4 = CENTER (select), 3 = LEFT (back to main menu)
             uint8_t listScreenIndex = 0;      // 0 = Screen 1, 1 = Screen 2
-            uint8_t listSelectedIndex = 0;    // 0-2 for Screen 1, 0-1 for Screen 2
+            uint8_t listSelectedIndex = 0;    // 0-2 for Screen 1, 0-2 for Screen 2
             uint8_t inListSubMenu = 1;
             
             while (inListSubMenu) {
@@ -1619,7 +1679,7 @@ int main(void) {
                         } else {
                             // At top of Screen 1, wrap to Screen 2
                             listScreenIndex = 1;
-                            listSelectedIndex = 1;  // Go to BACK option
+                            listSelectedIndex = 2;  // Go to BACK option
                         }
                     } else {
                         // On Screen 2, navigate up within screen
@@ -1643,7 +1703,7 @@ int main(void) {
                         }
                     } else {
                         // On Screen 2, navigate down within screen
-                        if (listSelectedIndex < 1) {
+                        if (listSelectedIndex < 2) {
                             listSelectedIndex++;
                         } else {
                             // At bottom of Screen 2, wrap to Screen 1
@@ -1657,12 +1717,15 @@ int main(void) {
                     if (listScreenIndex == 0) {
                         actualIndex = listSelectedIndex;  // 0=REGISTERED, 1=ACTIVE USERS, 2=LOCKED
                     } else {
-                        actualIndex = listSelectedIndex + 3;  // 3=DELETED, 4=BACK
+                        actualIndex = listSelectedIndex + 3;  // 3=DELETED, 4=DEL USER, 5=BACK
                     }
                     
                     // If BACK is selected, go back to main menu
-                    if (actualIndex == 4) {
+                    if (actualIndex == 5) {
                         inListSubMenu = 0;
+                    } else if (actualIndex == 4) {
+                        // Admin delete by ID
+                        AdminDeleteById();
                     } else {
                         // Display the list - after button press, return to LIST submenu
                         DisplayUserList(actualIndex);
